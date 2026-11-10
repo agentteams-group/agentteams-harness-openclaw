@@ -77,4 +77,10 @@ RUN mkdir -p /root/agentteams-fs /root/.openclaw
 
 WORKDIR /root/agentteams-fs
 
+COPY --from=agentteams-controller \
+    /opt/agentteams/agent/skills/worker-management/scripts/install-worker-skill.sh \
+    /opt/agentteams/agent/skills/worker-management/scripts/safe-extract-worker-skill.py \
+    /opt/agentteams/agent/skills/worker-management/scripts/push-worker-skills.sh \
+    /opt/agentteams/agent/skills/worker-management/scripts/
+
 ENTRYPOINT ["/opt/agentteams/scripts/worker-entrypoint.sh"]

@@ -235,6 +235,11 @@ start_config_sync() {
 # bulk workspace fallback. Only fetch the small config and merge when changed;
 # keep the local Matrix token through merge_openclaw_config.
 (
+    # The SDK rejects authored config changes during migration admission.
+    # Wait for initial readiness before applying remote policy updates.
+    until openclaw gateway health --json 2>/dev/null | jq -e '.ok == true' >/dev/null 2>&1; do
+        sleep 2
+    done
     while true; do
         sleep 10
         ensure_mc_credentials 2>/dev/null || true

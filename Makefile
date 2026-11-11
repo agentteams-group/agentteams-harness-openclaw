@@ -15,6 +15,7 @@ push:
 
 test:
 	bash -n scripts/worker-entrypoint.sh
+	python3 -m unittest discover -s tests -p 'test_*.py'
 
 smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests/image-smoke.sh:/tmp/image-smoke.sh:ro" $(IMAGE):$(VERSION) /tmp/image-smoke.sh

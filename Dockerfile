@@ -24,6 +24,9 @@ FROM ${AGENTTEAMS_CONTROLLER_IMAGE} AS agentteams-controller
 # openclaw-base already includes: all-in-one + Node.js 24 + OpenClaw + mcporter + common tools
 FROM ${OPENCLAW_BASE_IMAGE}
 
+COPY patches/direct-control.patch /tmp/agentteams-direct-control.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-direct-control.patch
+
 # mc (MinIO Client) — real binary; wrapper installed after shared libs are copied
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin
 

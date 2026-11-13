@@ -444,4 +444,5 @@ fi
 # user-customized openclaw.json on gateway restart. .bak is preserved as backup.
 rm -f "${HOME}/.openclaw/logs/config-health.json" 2>/dev/null || true
 
+python3 /opt/agentteams/scripts/lib/agentteams_receipts.py serve --runtime openclaw --workspace "${WORKSPACE}" &
 exec openclaw gateway run --verbose --force

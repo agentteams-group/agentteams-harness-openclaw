@@ -1,0 +1,144 @@
+diff --git a/extensions/matrix/src/matrix/monitor/handler.ts b/extensions/matrix/src/matrix/monitor/handler.ts
+index a39add23..1a03e9ad 100644
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -109,6 +109,32 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+   const roomHistoryTracker = createRoomHistoryTracker();
+   const roomIngressQueue = new KeyedAsyncQueue();
+   const sharedDmContextNoticeRooms = new Set<string>();
++  const directRuns = new Map<string, {
++    id: string; sender: string; inputs: string[]; controller: AbortController;
++    done: Promise<void>; finish: () => void; stopped: boolean; started: boolean;
++    startStatus?: Promise<void>;
++  }>();
++  const directMember = async (room: string, sender: string) => {
++    try {
++      const own = await client.getUserId();
++      const members = await client.getJoinedRoomMembers(room);
++      return members.length === 2 && members.includes(own) && members.includes(sender);
++    } catch {
++      return false;
++    }
++  };
++  const executionStatus = async (room: string, id: string, status: string, messageId?: string) => {
++    try { await client.sendMessage(room, {
++      msgtype: "m.notice",
++      body: ({ running: "正在执行", stopping: "正在停止", stopped: "已停止", completed: "本轮已结束", failed: "执行失败" } as Record<string, string>)[status],
++      "com.agentteams.execution": {
++        run_id: id, status, capabilities: ["stop", "steer"],
++        ...(messageId ? { message_id: messageId } : {}),
++      },
++    }); } catch (error) {
++      logger.warn("Matrix execution status delivery failed", { error: String(error) });
++    }
++  };
+ 
+   return async (roomId: string, event: MatrixRawEvent) => {
+     const eventId = typeof event.event_id === "string" ? event.event_id.trim() : "";
+@@ -116,6 +142,8 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+       | import("openclaw/plugin-sdk/persistent-dedupe").ChannelReplayClaimHandle
+       | undefined;
+     let draftControllerRef: Awaited<ReturnType<typeof createMatrixDraftController>> | undefined;
++    let directRun: ReturnType<typeof directRuns.get>;
++    let directFailed = false;
+     try {
+       const eventType = event.type;
+       if (eventType === EventType.RoomMessageEncrypted) {
+@@ -251,6 +279,35 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+         return;
+       }
+ 
++      let directInputs = [resolvedIngressResult.bodyText];
++      const control = (event.content as Record<string, unknown>)["com.agentteams.control"];
++      if (control && typeof control === "object") {
++        const request = control as Record<string, unknown>;
++        const active = directRuns.get(roomId);
++        if (request.agent_id !== await client.getUserId() || !["stop", "steer"].includes(String(request.action))) {
++          await commitInboundEventIfClaimed();
++          return;
++        }
++        if (active && active.id === request.run_id) {
++          if (active.sender !== senderId || !await directMember(roomId, senderId)) {
++            await commitInboundEventIfClaimed();
++            return;
++          }
++          active.stopped = true;
++          await executionStatus(roomId, active.id, "stopping");
++          active.controller.abort();
++          await active.done;
++          if (request.action === "steer") {
++            directInputs = [...active.inputs, resolvedIngressResult.bodyText];
++            resolvedIngressResult.bodyText = "Continue the original request using all supplementary information. Preserve conversation context and earlier results.\n\n" + directInputs.join("\n\n");
++          }
++        }
++        if (request.action === "stop") {
++          await commitInboundEventIfClaimed();
++          return;
++        }
++      }
++
+       const {
+         cfg,
+         liveDmAllowFrom,
+@@ -393,6 +450,12 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+           }
+         : undefined;
+ 
++      if (isDirectMessage && !directRuns.has(roomId) && await directMember(roomId, senderId)) {
++        let finish!: () => void;
++        const done = new Promise<void>((resolve) => { finish = resolve; });
++        directRun = { id: messageId, sender: senderId, inputs: directInputs, controller: new AbortController(), done, finish, stopped: false, started: false };
++        directRuns.set(roomId, directRun);
++      }
+       const turnResultPromise = core.channel.inbound.run({
+         channel: "matrix",
+         accountId: _route.accountId,
+@@ -476,6 +539,13 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+               onSettled: () => draftController.cancelProgressDraft(),
+             },
+             replyOptions: {
++              ...(directRun ? {
++                abortSignal: directRun.controller.signal,
++                onAgentRunStart: () => {
++                  directRun!.started = true;
++                  directRun!.startStatus = executionStatus(roomId, messageId, "running");
++                },
++              } : {}),
+               skillFilter: roomConfig?.skills,
+               // Preserve explicit block streaming with draft previews: drafts update the live
+               // block, while block deliveries finalize completed blocks as separate events.
+@@ -588,6 +658,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+       );
+       await commitInboundEventIfClaimed();
+     } catch (err) {
++      directFailed = true;
+       const draftController = draftControllerRef;
+       if (draftController?.draftStream?.eventId()) {
+         // A Matrix-accepted preview is the only visible reply after an abort.
+@@ -598,12 +669,26 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+       // Stop the draft stream timer so partial drafts don't leak if the
+       // model run throws or times out mid-stream.
+       const draftStream = draftControllerRef?.draftStream;
++      const responseId = draftStream?.eventId();
+       if (draftStream) {
+         await draftStream.stop().catch(() => undefined);
+         await draftControllerRef?.previewLifecycle.cleanup();
+         await draftStream.cleanupPending();
+       }
+       inboundReplayClaim?.release();
++      if (directRun) {
++        if (directRuns.get(roomId) === directRun) {
++          directRuns.delete(roomId);
++        }
++        try {
++          if (directRun.started) {
++            await directRun.startStatus;
++            await executionStatus(roomId, directRun.id, directRun.stopped ? "stopped" : directFailed ? "failed" : "completed", responseId ?? undefined);
++          }
++        } finally {
++          directRun.finish();
++        }
++      }
+     }
+   };
+ }

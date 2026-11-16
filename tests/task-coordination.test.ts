@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import path from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import { installMatrixMonitorTestRuntime } from '../../test-runtime.js';
 import { createMatrixHandlerTestHarness, createMatrixTextMessageEvent } from './handler.test-helpers.js';
 
@@ -25,8 +25,10 @@ it('admits authenticated main-task closure through the native channel without ad
   const old = { url: process.env.AGENTTEAMS_CONTROLLER_URL, token: process.env.AGENTTEAMS_AUTH_TOKEN_FILE, role: process.env.AGENTTEAMS_AGENT_ROLE };
   Object.assign(process.env, { AGENTTEAMS_CONTROLLER_URL: `http://127.0.0.1:${address.port}`, AGENTTEAMS_AUTH_TOKEN_FILE: token, AGENTTEAMS_AGENT_ROLE: 'leader' });
   const inputs: string[] = [];
-  const { handler } = createMatrixHandlerTestHarness({ dispatchInboundMessage: async ({ ctx }) => {
+  const sessions: string[] = [];
+  const { handler } = createMatrixHandlerTestHarness({ logVerboseMessage: console.log, runtime: {error: console.error} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx }) => {
     inputs.push(String(ctx.BodyForAgent));
+    sessions.push(String(ctx.SessionKey));
     return { queuedFinal: false, counts: { final: 0, block: 0, tool: 0 } };
   } });
   try {
@@ -36,6 +38,7 @@ it('admits authenticated main-task closure through the native channel without ad
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toContain('Canonical accepted main task');
     expect(inputs[0]).not.toContain('Visible projection');
+    expect(sessions[0]).toContain(encodeURIComponent(control.session_id));
     completed = false;
     await handler('!room:example.org', { ...message, event_id: '$stale' });
     expect(inputs).toHaveLength(1);

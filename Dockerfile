@@ -24,6 +24,9 @@ FROM ${AGENTTEAMS_CONTROLLER_IMAGE} AS agentteams-controller
 # openclaw-base already includes: all-in-one + Node.js 24 + OpenClaw + mcporter + common tools
 FROM ${OPENCLAW_BASE_IMAGE}
 
+RUN apt-get update && apt-get install -y --no-install-recommends python3-yaml \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY patches/direct-control.patch /tmp/agentteams-direct-control.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-direct-control.patch
 COPY patches/task-coordination.patch /tmp/agentteams-task-coordination.patch

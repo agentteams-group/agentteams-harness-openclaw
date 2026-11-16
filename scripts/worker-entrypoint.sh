@@ -174,6 +174,9 @@ if [ -f "${WORKSPACE}/skills-lock.json" ] && [ -z "$(ls -A ${WORKSPACE}/skills 2
     cd "${WORKSPACE}" && skills experimental_install -y 2>/dev/null || log "Warning: skills restore failed, will need to reinstall"
 fi
 
+python3 /opt/agentteams/scripts/lib/agentteams_skill_warnings.py "${WORKSPACE}/skills" \
+    || log "WARNING: skill validation unavailable; continuing startup"
+
 # Worker isolation bundle (M7): whole-bundle replacement of the shim +
 # gitconfig under ${AGENTTEAMS_ISOLATION_DIR:-/root/.agentteams}, with a
 # pre-write integrity self-check — a foreign or incomplete bundle halts
@@ -273,7 +276,11 @@ start_config_sync() {
         sleep "${CONFIG_SYNC_INTERVAL}"
         ensure_mc_credentials 2>/dev/null || true
         mc cp "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/config/mcporter.json" "${WORKSPACE}/config/mcporter.json" 2>/dev/null || true
-        mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/skills/" "${WORKSPACE}/skills/" --overwrite 2>/dev/null || true
+        if mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/skills/" "${WORKSPACE}/skills/" --overwrite 2>/dev/null; then
+            python3 /opt/agentteams/scripts/lib/agentteams_skill_warnings.py "${WORKSPACE}/skills" || true
+        else
+            log "WARNING: skill sync failed; retaining existing skills"
+        fi
         find "${WORKSPACE}/skills" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
         mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/shared/" "${AGENTTEAMS_ROOT}/shared/" --overwrite --newer-than "5m" 2>/dev/null || true
         # Refresh both watermarks so freshly-pulled Manager-managed files are

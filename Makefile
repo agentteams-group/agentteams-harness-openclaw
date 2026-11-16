@@ -21,4 +21,4 @@ smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests/image-smoke.sh:/tmp/image-smoke.sh:ro" $(IMAGE):$(VERSION) /tmp/image-smoke.sh
 
 direct-control-smoke:
-	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts'
+	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts; cp /dm/task-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts'

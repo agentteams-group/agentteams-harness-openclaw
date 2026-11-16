@@ -26,6 +26,8 @@ FROM ${OPENCLAW_BASE_IMAGE}
 
 COPY patches/direct-control.patch /tmp/agentteams-direct-control.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-direct-control.patch
+COPY patches/task-coordination.patch /tmp/agentteams-task-coordination.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-task-coordination.patch
 
 # mc (MinIO Client) — real binary; wrapper installed after shared libs are copied
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin

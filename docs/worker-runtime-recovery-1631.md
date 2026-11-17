@@ -45,10 +45,13 @@ conflicts abort the native run and its tools. Uncertain native failures preserve
 the authoritative verification requirement. This requires the matching Controller
 Task recovery API; unavailability defers admission rather than executing unfenced.
 
-Four installed-SDK tests pass with the real Python HTTP client, SQLite transcript
+Five installed-SDK tests pass with the real Python HTTP client, SQLite transcript
 and native exec cancellation, but fixture authority/Matrix/model boundaries.
 Native mcporter also discovers the bundled ack/checkpoint/submit stdio tools.
 These tests do not prove actual full-gateway model inference or Task E2E.
+Process-local admission survives Matrix monitor/plugin reload, scoped to the
+authority, account and actual Worker process; reload is not a new execution
+generation. The regression failed with two native admissions before the fix.
 
 Remaining work includes all configuration/asset ownership and successful user
 setting writes, real native crypto/cursor persistence and replacement snapshots,

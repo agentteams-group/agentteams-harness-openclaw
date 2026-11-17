@@ -182,3 +182,25 @@ it("automatically starts a claimed native turn and stops its real exec after own
   expect(send).not.toHaveBeenCalled();
   expect(run).toHaveBeenCalledOnce();
 });
+
+it("retains a completed native admission across Matrix monitor reload in the same process", async () => {
+  const run = vi.fn(async (params) => {
+    const turn = await params.adapter.resolveTurn({}, {}, {});
+    await turn.replyOptions.onAgentRunStart("native-progress");
+    await seed(turn.route.sessionKey);
+    Object.assign(task.execution.checkpoint, { result: { key: "progress", sha256: "fixture", size: 26 },
+      delivery: "pending", reply_txn: "progress-transaction" });
+    await turn.delivery.deliver({ text: "step one complete" }, { kind: "final" });
+  });
+  create(run);
+  await recovery.scan();
+  await expect.poll(() => fs.existsSync(path.join(home, "runtime/openclaw-task-sessions.json")),
+                    { timeout: 20000 }).toBe(true);
+  await recovery.stop();
+  expect(task.status).toBe("in_progress");
+  expect(task.execution.checkpoint.delivery).toBe("delivered");
+  create(run);
+  await recovery.scan();
+  await recovery.stop();
+  expect(run).toHaveBeenCalledOnce();
+});

@@ -49,6 +49,10 @@ export const taskRecoveryRPC: RPC = (request) => new Promise((resolve, reject) =
 });
 
 const monitors = new Map<string, AgentTeamsTaskRecovery>();
+// Channel/plugin reload is not a new Worker execution generation.
+const admissionSlot = Symbol.for("agentteams.openclaw.task-admissions");
+const processState = globalThis as typeof globalThis & { [admissionSlot]?: Map<string, Set<string>> };
+const processAdmissions = processState[admissionSlot] ??= new Map<string, Set<string>>();
 export function getAgentTeamsTaskRecovery(accountId: string) { return monitors.get(accountId); }
 
 export class AgentTeamsTaskRecovery {
@@ -57,7 +61,7 @@ export class AgentTeamsTaskRecovery {
   private scanning = false;
   private stopped = false;
   private timer?: ReturnType<typeof setInterval>;
-  private admitted = new Set<string>();
+  private admitted: Set<string>;
   private sources = new Map<string, string>();
   private active = new Map<string, { controller: AbortController; done: Promise<void> }>();
   private cachePath: string;
@@ -75,6 +79,9 @@ export class AgentTeamsTaskRecovery {
     this.cachePath = path.join(home, "runtime", "openclaw-task-sessions.json");
     // An endpoint change invalidates this local cache, never the durable Task ID.
     this.authority = this.digest([process.env.AGENTTEAMS_CONTROLLER_URL, options.userId]);
+    const scope = this.digest([this.authority, options.accountId, process.env.AGENTTEAMS_PROCESS_ID]);
+    this.admitted = processAdmissions.get(scope) ?? new Set<string>();
+    processAdmissions.set(scope, this.admitted);
   }
 
   private digest(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }

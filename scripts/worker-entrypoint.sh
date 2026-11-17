@@ -372,54 +372,11 @@ cd "${WORKSPACE}"
 find "${HOME}/.openclaw/agents" -name "*.jsonl.lock" -delete 2>/dev/null || true
 log "Cleaned up any orphaned session write locks"
 
-# Clean Matrix crypto storage (SQLite WAL may be corrupted after unclean shutdown)
-# Crypto state is re-negotiated on startup; losing it only means re-establishing E2EE sessions
-rm -rf "${HOME}/.openclaw/matrix" 2>/dev/null || true
-log "Cleaned Matrix crypto storage (will re-establish E2EE sessions)"
-
-# ============================================================
-# Step 5b: Re-login to Matrix to get fresh access token + device ID
-# ============================================================
-# Under E2EE, reusing the old access token (same device_id) with a new
-# identity key (crypto storage was just wiped) causes other clients to
-# reject key distribution. Re-login creates a new device_id, matching
-# the Manager's behavior and allowing clean E2EE session establishment.
-MATRIX_PASSWORD_FILE="${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/credentials/matrix/password"
-MATRIX_PASSWORD=$(mc cat "${MATRIX_PASSWORD_FILE}" 2>/dev/null) || true
-if [ -n "${MATRIX_PASSWORD}" ]; then
-    # Read homeserver URL from openclaw.json (already pulled from MinIO)
-    MATRIX_SERVER=$(jq -r '.channels.matrix.homeserver // empty' "${WORKER_CONFIG}" 2>/dev/null)
-
-    if [ -n "${MATRIX_SERVER}" ]; then
-        log "Re-logging into Matrix to get fresh access token and device ID..."
-        LOGIN_RESP=$(curl -sf -X POST "${MATRIX_SERVER}/_matrix/client/v3/login" \
-            -H 'Content-Type: application/json' \
-            -d '{
-                "type": "m.login.password",
-                "identifier": {"type": "m.id.user", "user": "'"${WORKER_NAME}"'"},
-                "password": "'"${MATRIX_PASSWORD}"'"
-            }' 2>/dev/null) || true
-
-        NEW_TOKEN=$(echo "${LOGIN_RESP}" | jq -r '.access_token // empty' 2>/dev/null)
-        NEW_DEVICE=$(echo "${LOGIN_RESP}" | jq -r '.device_id // empty' 2>/dev/null)
-
-        if [ -n "${NEW_TOKEN}" ] && [ "${NEW_TOKEN}" != "null" ]; then
-            # Update openclaw.json with the fresh token
-            jq --arg token "${NEW_TOKEN}" '.channels.matrix.accessToken = $token' \
-                "${WORKER_CONFIG}" > /tmp/openclaw-relogin.json \
-                && mv /tmp/openclaw-relogin.json "${WORKER_CONFIG}"
-            log "Matrix re-login successful (new device: ${NEW_DEVICE})"
-        else
-            log "WARNING: Matrix re-login failed, using existing access token (E2EE may not work with Element Web)"
-        fi
-    else
-        log "WARNING: Missing homeserver URL in openclaw.json, skipping Matrix re-login"
-    fi
-    # Clear password from memory
-    MATRIX_PASSWORD=""
-else
-    log "No Matrix password found in MinIO, skipping re-login (E2EE may not work after restart)"
-fi
+# Keep the native Matrix sync/crypto store and the Controller-bound token.
+# The pinned SDK resolves the device and selects compatible account storage;
+# deleting that storage or creating a fresh device here loses restart backlog.
+# SQLite recovery belongs to the SDK. Corruption must surface, not erase state.
+log "Preserving Matrix device, crypto and sync state for native recovery"
 
 # Materialize the selected Harness's native Manager configuration.
 if [ "${AGENTTEAMS_AGENT_ROLE:-}" = "manager" ]; then

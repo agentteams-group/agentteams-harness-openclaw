@@ -30,6 +30,7 @@ jobs:
       - run: make build VERSION=ci SHARED_CONTEXT=./.deps/AgentTeams/shared/lib
       - run: make smoke VERSION=ci
       - run: make direct-control-smoke VERSION=ci
+      - run: make matrix-restart-smoke VERSION=ci
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

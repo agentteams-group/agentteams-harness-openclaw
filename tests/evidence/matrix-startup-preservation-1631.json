@@ -1,0 +1,41 @@
+{
+  "scope": "OpenClaw launch preamble retains existing native Matrix state; not Task recovery or encrypted traffic acceptance",
+  "harness_parent_sha": "66863fa027ac4f13081354ef9804ed720a400f92",
+  "core_shared_pin": "3153576fab2bf3b767643b8f5a8df8715fc0f281",
+  "base_image": "higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/openclaw-base:2026.10.9-node24.22.1",
+  "base_digest": "sha256:d3d18312aa16aaa8da0b76e82004919cd4e5400124d584d62b24fe43e80fa2a7",
+  "sdk_sha": "8b18b5578f66eab1501cba4cef2310d88bfb9a41",
+  "actual_node_version": "v24.22.3",
+  "local_overlay_image": "recovery-1631/openclaw-matrix:local-20261117173300",
+  "local_overlay_image_id": "sha256:df90d355e022be2ac76c5e883ba5fbd0caf5acd3dbe3ff94958ecc57f2120577",
+  "source_sha256": {
+    "scripts/worker-entrypoint.sh": "ffc78e84721610681ad289422d122a797bb1afca966bcf67cc97c0c385dc979b",
+    "tests/test_matrix_startup.py": "0175f63497761bdd6f6652ecf119dc9b5eda7b3c8148212767ec0efcece1a965",
+    "tests/matrix-restart.test.ts": "ea022f23fe1e74d38f5ad3e71a6a91abfab38d55ff3dd80396f90a166f887b8e"
+  },
+  "checks": {
+    "old_launch_preamble_red": "Both populated and empty state subtests failed: password fetch and new device login attempted.",
+    "host_suite": "12 tests passed; bash syntax and git diff --check passed",
+    "native_store_suite": "2 tests passed, networking disabled; real pinned SDK auth/SQLite sync/crypto snapshot persistence APIs, close and reopen stores around actual shell preamble",
+    "clean_shutdown_marker": [
+      false,
+      true
+    ],
+    "preserved": [
+      "Controller-bound token",
+      "cached native device ID",
+      "persisted sync cursor",
+      "synthetic crypto snapshot bytes through native store API"
+    ],
+    "device_isolation": "Different confirmed device and token selected a separate empty cursor; original state retained"
+  },
+  "not_tested": [
+    "actual Worker/container restart",
+    "SIGKILL/WAL recovery with an active writer",
+    "real crypto keys or encrypted traffic",
+    "object-storage snapshot/restore or container replacement",
+    "backlog consumption",
+    "Task discovery/claim/session/inference/step continuation",
+    "full Harness image build (CI pending)"
+  ]
+}

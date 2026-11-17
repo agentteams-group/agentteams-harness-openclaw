@@ -12,6 +12,7 @@ python3 "${AGENTTEAMS_LOG_LIB_DIR:-/opt/agentteams/scripts/lib}/runtime_observab
 #   /root/agentteams-fs/shared/                     = Shared tasks, knowledge, collaboration data
 
 set -e
+umask 077
 source /opt/agentteams/scripts/lib/agentteams-env.sh
 source /opt/agentteams/scripts/lib/merge-openclaw-config.sh
 source /opt/agentteams/scripts/lib/migrate-openclaw-config.sh
@@ -39,6 +40,7 @@ fi
 # Use absolute path because HOME is set to the workspace directory via docker run
 AGENTTEAMS_ROOT="/root/agentteams-fs"
 WORKSPACE="${AGENTTEAMS_WORKER_HOME:-${AGENTTEAMS_ROOT}/agents/${WORKER_NAME}}"
+export HOME="${WORKSPACE}"
 
 # ============================================================
 # Step 1: Configure mc alias for centralized file system
@@ -83,7 +85,7 @@ touch "${PULL_MARKER}"
 
 # Verify essential files exist, retry if sync is still in progress
 RETRY=0
-while [ ! -f "${WORKSPACE}/openclaw.json" ] || [ ! -f "${WORKSPACE}/SOUL.md" ] \
+while { [ ! -f "${WORKSPACE}/runtime/runtime.yaml" ] && [ ! -f "${WORKSPACE}/openclaw.json" ]; } || [ ! -f "${WORKSPACE}/SOUL.md" ] \
       || [ ! -f "${WORKSPACE}/AGENTS.md" ]; do
     RETRY=$((RETRY + 1))
     if [ "${RETRY}" -gt 6 ]; then
@@ -97,10 +99,12 @@ while [ ! -f "${WORKSPACE}/openclaw.json" ] || [ ! -f "${WORKSPACE}/SOUL.md" ] \
     touch "${PULL_MARKER}"
 done
 
+WORKER_CONFIG=$(python3 /opt/agentteams/scripts/configure-runtime.py "${WORKSPACE}")
+
 # HOME is already set to WORKSPACE via docker run -e HOME=...
 # Symlink to default OpenClaw config path so CLI commands find the config
 mkdir -p "${HOME}/.openclaw"
-ln -sf "${WORKSPACE}/openclaw.json" "${HOME}/.openclaw/openclaw.json"
+ln -sf "${WORKER_CONFIG}" "${HOME}/.openclaw/openclaw.json"
 
 # Create symlink for skills CLI: ~/.agents/skills -> ~/skills
 # This makes `skills add -g` install skills directly into ~/skills/ (same as file-sync)
@@ -120,7 +124,7 @@ log "Worker config pulled successfully"
 # remote->local merge below runs only after its initial 5-minute sleep, so
 # sourcing the merge helper alone does not cover an existing workspace that
 # still has pre-v2026.10.6 keys.
-if ! migrate_openclaw_config "${WORKSPACE}/openclaw.json"; then
+if ! migrate_openclaw_config "${WORKER_CONFIG}"; then
     log "ERROR: failed to migrate openclaw.json to the current schema; refusing to start the gateway"
     exit 1
 fi
@@ -129,14 +133,14 @@ log "Migrated openclaw.json to the current OpenClaw schema"
 # Replace historical tools.elevated.allowFrom.matrix=["*"] with this
 # worker's existing Matrix allowlist. tools is local-first on sync, so
 # a leftover wildcard would otherwise survive a tighter MinIO config.
-if jq -e '.tools.elevated.allowFrom.matrix == ["*"]' "${WORKSPACE}/openclaw.json" >/dev/null 2>&1 \
+if jq -e '.tools.elevated.allowFrom.matrix == ["*"]' "${WORKER_CONFIG}" >/dev/null 2>&1 \
     && jq -e '((.channels.matrix.groupAllowFrom // .channels.matrix.dm.allowFrom // []) | length) > 0' \
-        "${WORKSPACE}/openclaw.json" >/dev/null 2>&1; then
+        "${WORKER_CONFIG}" >/dev/null 2>&1; then
     if jq '
         (.channels.matrix.groupAllowFrom // .channels.matrix.dm.allowFrom // []) as $ids
         | .tools.elevated.allowFrom.matrix = $ids
-    ' "${WORKSPACE}/openclaw.json" > /tmp/openclaw-elevated.json; then
-        mv /tmp/openclaw-elevated.json "${WORKSPACE}/openclaw.json"
+    ' "${WORKER_CONFIG}" > /tmp/openclaw-elevated.json; then
+        mv /tmp/openclaw-elevated.json "${WORKER_CONFIG}"
         log "Migrated tools.elevated.allowFrom.matrix from wildcard to groupAllowFrom/dm.allowFrom"
     else
         rm -f /tmp/openclaw-elevated.json
@@ -154,7 +158,7 @@ _diag_plugin_dir="/opt/openclaw/extensions/diagnostics-otel"
 if [ -f "${_diag_plugin_dir}/package.json" ] && \
    jq -e --arg dir "${_diag_plugin_dir}" \
         '(.plugins.load.paths // []) | index($dir) != null' \
-        "${WORKSPACE}/openclaw.json" > /dev/null 2>&1; then
+        "${WORKER_CONFIG}" > /dev/null 2>&1; then
     if [ ! -d "${_diag_plugin_dir}/node_modules" ]; then
         log "diagnostics-otel: installing npm dependencies (required for metrics)..."
         if (cd "${_diag_plugin_dir}" && npm install --omit=dev --ignore-scripts >/tmp/agentteams-diag-install.log 2>&1); then
@@ -251,9 +255,28 @@ start_config_sync() {
     while true; do
         sleep 10
         ensure_mc_credentials 2>/dev/null || true
+        if [ "${WORKER_CONFIG}" = "${WORKSPACE}/runtime/compat-config.json" ]; then
+            local_record="${WORKSPACE}/runtime/runtime.yaml"
+            pending_record="${WORKSPACE}/runtime/.runtime-pending.yaml"
+            if mc cp "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/runtime/runtime.yaml" "${pending_record}" 2>/dev/null; then
+                if ! cmp -s "${local_record}" "${pending_record}"; then
+                    if python3 /opt/agentteams/scripts/configure-runtime.py "${WORKSPACE}" "${pending_record}" >/dev/null; then
+                        mv "${pending_record}" "${local_record}"
+                        touch "${PULL_MARKER}"
+                        worker_sync_mark_remote_pull "${WORKER_SYNC_STATE_DIR}"
+                    else
+                        log "ERROR: standard Worker configuration could not be applied; stopping to avoid executing with stale authority"
+                        kill -TERM "$$"
+                        exit 1
+                    fi
+                fi
+            fi
+            rm -f "${pending_record}"
+            continue
+        fi
         if mc cp "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/openclaw.json" /tmp/openclaw-policy-remote.json 2>/dev/null; then
             if ! cmp -s /tmp/openclaw-policy-remote.json /tmp/openclaw-policy-applied.json; then
-                if merge_openclaw_config /tmp/openclaw-policy-remote.json "${WORKSPACE}/openclaw.json"; then
+                if merge_openclaw_config /tmp/openclaw-policy-remote.json "${WORKER_CONFIG}"; then
                     if [ "${AGENTTEAMS_AGENT_ROLE:-}" = "manager" ]; then
                         prepare_manager_config || { log "WARNING: native Manager config validation failed"; continue; }
                     fi
@@ -296,7 +319,7 @@ log "Remote->Local fallback sync started (every ${CONFIG_SYNC_INTERVAL}s, PID: $
 # Rebuild from that desired config so model and policy updates take effect.
 prepare_manager_config() {
     local candidate="${OPENCLAW_CONFIG_PATH}.pending"
-    cp "${WORKSPACE}/openclaw.json" "${candidate}"
+    cp "${WORKER_CONFIG}" "${candidate}"
     jq --arg room "${AGENTTEAMS_WORKER_ROOM_ID}" '.channels.matrix.groups[$room].requireMention = false' \
         "${candidate}" > "${candidate}.tmp" && mv "${candidate}.tmp" "${candidate}"
     if [ "${OPENCLAW_HAS_VALIDATE}" = "1" ]; then
@@ -341,7 +364,7 @@ export MCPORTER_CONFIG="${MCPORTER_DEFAULT}"
 # Step 5: Launch OpenClaw Worker Agent
 # ============================================================
 log "Starting Worker Agent: ${WORKER_NAME}"
-export OPENCLAW_CONFIG_PATH="${WORKSPACE}/openclaw.json"
+export OPENCLAW_CONFIG_PATH="${WORKER_CONFIG}"
 cd "${WORKSPACE}"
 
 # Clean orphaned session write locks (e.g. from SIGKILL or crash before exit handlers)
@@ -365,7 +388,7 @@ MATRIX_PASSWORD_FILE="${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/credent
 MATRIX_PASSWORD=$(mc cat "${MATRIX_PASSWORD_FILE}" 2>/dev/null) || true
 if [ -n "${MATRIX_PASSWORD}" ]; then
     # Read homeserver URL from openclaw.json (already pulled from MinIO)
-    MATRIX_SERVER=$(jq -r '.channels.matrix.homeserver // empty' "${WORKSPACE}/openclaw.json" 2>/dev/null)
+    MATRIX_SERVER=$(jq -r '.channels.matrix.homeserver // empty' "${WORKER_CONFIG}" 2>/dev/null)
 
     if [ -n "${MATRIX_SERVER}" ]; then
         log "Re-logging into Matrix to get fresh access token and device ID..."
@@ -383,12 +406,11 @@ if [ -n "${MATRIX_PASSWORD}" ]; then
         if [ -n "${NEW_TOKEN}" ] && [ "${NEW_TOKEN}" != "null" ]; then
             # Update openclaw.json with the fresh token
             jq --arg token "${NEW_TOKEN}" '.channels.matrix.accessToken = $token' \
-                "${WORKSPACE}/openclaw.json" > /tmp/openclaw-relogin.json \
-                && mv /tmp/openclaw-relogin.json "${WORKSPACE}/openclaw.json"
-            log "Matrix re-login successful (new device: ${NEW_DEVICE}, token prefix: ${NEW_TOKEN:0:10}...)"
+                "${WORKER_CONFIG}" > /tmp/openclaw-relogin.json \
+                && mv /tmp/openclaw-relogin.json "${WORKER_CONFIG}"
+            log "Matrix re-login successful (new device: ${NEW_DEVICE})"
         else
             log "WARNING: Matrix re-login failed, using existing access token (E2EE may not work with Element Web)"
-            log "  Response: ${LOGIN_RESP}"
         fi
     else
         log "WARNING: Missing homeserver URL in openclaw.json, skipping Matrix re-login"
@@ -407,7 +429,7 @@ if [ "${AGENTTEAMS_AGENT_ROLE:-}" = "manager" ]; then
         OPENCLAW_HAS_VALIDATE=1
     fi
     prepare_manager_config || { log "ERROR: native Manager config validation failed"; exit 1; }
-    MANAGER_CONFIG_HASH=$(sha256sum "${WORKSPACE}/openclaw.json" | cut -d' ' -f1)
+    MANAGER_CONFIG_HASH=$(sha256sum "${WORKER_CONFIG}" | cut -d' ' -f1)
 fi
 start_config_sync
 

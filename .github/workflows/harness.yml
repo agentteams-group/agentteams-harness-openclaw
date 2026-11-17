@@ -16,9 +16,18 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Read shared Core dependency
+        id: core
+        run: echo "ref=$(sed -n 's/^AT_REF=//p' versions.env)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: agentscope-ai/AgentTeams
+          ref: ${{ steps.core.outputs.ref }}
+          path: .deps/AgentTeams
       - uses: docker/setup-buildx-action@v3
+      - run: python3 -m pip install 'PyYAML>=6,<7'
       - run: make test
-      - run: make build VERSION=ci
+      - run: make build VERSION=ci SHARED_CONTEXT=./.deps/AgentTeams/shared/lib
       - run: make smoke VERSION=ci
       - run: make direct-control-smoke VERSION=ci
 

@@ -1,4 +1,8 @@
 .git
+__pycache__
+**/__pycache__
+*.pyc
+**/*.pyc
 .github
 tests
 README.md

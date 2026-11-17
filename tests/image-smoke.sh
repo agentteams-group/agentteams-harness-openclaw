@@ -9,6 +9,9 @@ for helper in install-worker-skill.sh safe-extract-worker-skill.py push-worker-s
 done
 mc.bin --version
 mc --version
+test -r /opt/agentteams/scripts/lib/task_recovery_rpc.py
+test -r /opt/agentteams/plugins/teamharness/mcp/server.py
+test -r /opt/openclaw/extensions/matrix/src/matrix/monitor/agentteams-task-recovery.ts
 bash -n /opt/agentteams/scripts/worker-entrypoint.sh
 source /opt/agentteams/scripts/lib/agentteams-env.sh
 source /opt/agentteams/scripts/lib/merge-openclaw-config.sh

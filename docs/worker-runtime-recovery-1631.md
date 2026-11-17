@@ -34,10 +34,25 @@ projection and the actual shell watcher with synthetic SDK/storage boundaries.
 values back, with networking disabled. Neither is Task execution, native
 inference, a real object-store producer flow or full gateway startup.
 
+The native Matrix monitor now discovers self-scoped Tasks on startup and polls
+them before admitting new assignments. Its JSON bridge delegates claims and
+reply mutations to Core's shared recovery client. Native conversation selection
+checks the actual SQLite entry/transcript, SDK expiration and shared checkpoint
+digest. Missing or stale sessions get a new native conversation with Task and
+checkpoint context; other Harnesses' sessions are never imported. Saved pending
+results use their original Matrix transaction without inference. Ownership
+conflicts abort the native run and its tools. Uncertain native failures preserve
+the authoritative verification requirement. This requires the matching Controller
+Task recovery API; unavailability defers admission rather than executing unfenced.
+
+Four installed-SDK tests pass with the real Python HTTP client, SQLite transcript
+and native exec cancellation, but fixture authority/Matrix/model boundaries.
+Native mcporter also discovers the bundled ack/checkpoint/submit stdio tools.
+These tests do not prove actual full-gateway model inference or Task E2E.
+
 Remaining work includes all configuration/asset ownership and successful user
-setting writes, native crypto/cursor persistence (including the existing Matrix
-reset/re-login flow), startup room and Task discovery, process-bound execution
-admission, checkpoint-aware session reuse/rebuild, automatic continuation without
-new Matrix input, result delivery and unknown-effect verification. Stop/tool
-termination and the full six-Harness/30-direction matrix remain unaccepted.
+setting writes, real native crypto/cursor persistence and replacement snapshots,
+and actual startup/source-event/model/tool/delivery integration. Real restart,
+cross-Harness Task continuation and the full six-Harness/30-direction matrix
+remain unaccepted for this adapter.
 Track implementation and evidence in agentscope-ai/AgentTeams#1631.

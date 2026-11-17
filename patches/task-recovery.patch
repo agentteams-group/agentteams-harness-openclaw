@@ -1,0 +1,79 @@
+diff --git a/extensions/matrix/src/matrix/monitor/index.ts b/extensions/matrix/src/matrix/monitor/index.ts
+--- a/extensions/matrix/src/matrix/monitor/index.ts
++++ b/extensions/matrix/src/matrix/monitor/index.ts
+@@ -50,6 +50,7 @@
+ import { createDirectRoomTracker } from "./direct.js";
+ import { registerMatrixMonitorEvents } from "./events.js";
+ import { createMatrixRoomMessageHandler } from "./handler.js";
++import { createAgentTeamsTaskRecovery, type AgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
+ import { createMatrixInboundEventDeduper } from "./inbound-dedupe.js";
+ import { shouldPromoteRecentInviteRoom } from "./recent-invite.js";
+ import { createMatrixRoomInfoResolver } from "./room-info.js";
+@@ -202,6 +203,7 @@
+   });
+   let cleanedUp = false;
+   let cleanupPromise: Promise<void> | null = null;
++  let taskRecovery: AgentTeamsTaskRecovery | undefined;
+   let client: MatrixClient | null = null;
+   let clientLease: SharedMatrixClientLease | null = null;
+   let monitorLifecycleSignal = opts.abortSignal;
+@@ -221,6 +223,7 @@
+     cleanedUp = true;
+     cleanupPromise = (async () => {
+       try {
++        await taskRecovery?.stop();
+         await clientLease?.release({
+           mode,
+         });
+@@ -385,6 +388,9 @@
+       runtime,
+       runDetachedTask: monitorTaskRunner.runDetachedTask,
+     });
++    taskRecovery = createAgentTeamsTaskRecovery({ core, client, cfg, accountId: effectiveAccountId,
++      userId: auth.userId, signal: monitorLifecycleSignal ?? new AbortController().signal,
++      warn: (message) => logger.warn(message) });
+     const handleRoomMessage = createMatrixRoomMessageHandler({
+       client,
+       core,
+@@ -481,6 +487,7 @@
+       return;
+     }
+     logVerboseMessage("matrix: client started");
++    taskRecovery?.start();
+ 
+     logger.info(`matrix: logged in as ${auth.userId}`);
+     void monitorTaskRunner.runDetachedTask("deviceId backfill", async () => {
+diff --git a/extensions/matrix/src/matrix/monitor/handler.ts b/extensions/matrix/src/matrix/monitor/handler.ts
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -1,4 +1,5 @@
+ import { spawn } from "node:child_process";
++import { getAgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
+ import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
+ import {
+   createChannelInboundEnvelopeBuilderAsync,
+@@ -148,9 +149,11 @@
+     let directFailed = false;
+     try {
+       if (event.content?.["org.agentteams.progress_only"] === true) return;
++      const taskRecovery = getAgentTeamsTaskRecovery(accountId);
++      if (taskRecovery) await taskRecovery.ready;
+       if (event.content && "org.agentteams.coordination" in event.content) {
+         const awaitOwnUserId = await client.getUserId();
+-        const packet = await new Promise<{ text: string; session_id: string } | null>((resolve) => {
++        const packet = await new Promise<{ text: string; session_id: string; meta?: { teamharness_coordination?: { kind?: string; task_id?: string } } } | null>((resolve) => {
+           const child = spawn("python3", ["/opt/agentteams/scripts/lib/task_coordination.py"],
+             { stdio: ["pipe", "pipe", "ignore"], timeout: 15000 });
+           let output = "";
+@@ -162,6 +165,11 @@
+             sender: event.sender, own: awaitOwnUserId }));
+         });
+         if (!packet) return;
++        const assigned = packet.meta?.teamharness_coordination;
++        if (taskRecovery && assigned?.kind === "task_assigned" && assigned.task_id) {
++          await taskRecovery.acceptSource(assigned.task_id, roomId, eventId);
++          return;
++        }
+         event.content.body = packet.text;
+         coordinationSession = packet.session_id;
+         Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: true });

@@ -31,6 +31,9 @@ COPY patches/direct-control.patch /tmp/agentteams-direct-control.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-direct-control.patch
 COPY patches/task-coordination.patch /tmp/agentteams-task-coordination.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-task-coordination.patch
+COPY runtime/agentteams-task-recovery.ts /opt/openclaw/extensions/matrix/src/matrix/monitor/agentteams-task-recovery.ts
+COPY patches/task-recovery.patch /tmp/agentteams-task-recovery.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-task-recovery.patch
 
 # mc (MinIO Client) — real binary; wrapper installed after shared libs are copied
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin
@@ -65,6 +68,7 @@ ENV PATH="/opt/openclaw/packages/clawdbot/node_modules/.bin:${PATH}"
 
 # Shared environment bootstrap and credential management
 COPY --from=shared . /opt/agentteams/scripts/lib/
+COPY --from=teamharness . /opt/agentteams/plugins/teamharness/
 
 # mc wrapper: auto-refreshes STS credentials before every mc invocation (no-op in local mode)
 RUN chmod +x /opt/agentteams/scripts/lib/mc-wrapper.sh && \

@@ -360,6 +360,15 @@ ln -sfn "${MCPORTER_DEFAULT}" "${MCPORTER_COMPAT}"
 # Keep MCPORTER_CONFIG for any scripts that still reference it
 export MCPORTER_CONFIG="${MCPORTER_DEFAULT}"
 
+# Your Task tools read the same Worker contract and inherit this process boot ID.
+export TEAMHARNESS_RUNTIME_CONFIG="${WORKSPACE}/runtime/runtime.yaml"
+export TEAMHARNESS_SHARED_DIR="${WORKSPACE}/shared"
+export AGENTTEAMS_WORKER_ROLE="${AGENTTEAMS_AGENT_ROLE:-worker}"
+if [ "${AGENTTEAMS_WORKER_ROLE}" = "standalone" ]; then
+    export AGENTTEAMS_WORKER_ROLE=worker
+fi
+mkdir -p "${TEAMHARNESS_SHARED_DIR}"
+
 # ============================================================
 # Step 5: Launch OpenClaw Worker Agent
 # ============================================================

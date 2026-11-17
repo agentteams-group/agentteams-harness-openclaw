@@ -59,3 +59,14 @@ and actual startup/source-event/model/tool/delivery integration. Real restart,
 cross-Harness Task continuation and the full six-Harness/30-direction matrix
 remain unaccepted for this adapter.
 Track implementation and evidence in agentscope-ai/AgentTeams#1631.
+
+Controller-owned `desired.observability` now initializes the native
+diagnostics-otel exporter, with content capture controlled by that standard
+record. Ingestion authentication remains in its standard OTLP environment
+binding; backend query credentials are never projected. Disabled records stop
+collection and remove the old endpoint. Native spans carry Worker identity and
+claimed Task/team/generation correlation; this metadata grants no execution
+authority. The installed exporter/HTTP-protobuf test uses synthetic diagnostic
+events and verifies authentication, cross-adapter correlation and excluded raw
+content. Real model, Controller/Langfuse and Dashboard UI readback remain open
+for this candidate.

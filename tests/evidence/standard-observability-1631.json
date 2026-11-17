@@ -1,0 +1,29 @@
+{
+  "scope": "common-record native tracing projection and installed exporter/OTLP boundary; synthetic diagnostics, not real Task/model/Langfuse E2E",
+  "harness_parent_sha": "7828fc2c8db2923b8f4520fa7643a68a28797dcd",
+  "core_shared_pin": "0f36d4c389aa2207bdd042521f126f7b8aae753f",
+  "sdk_sha": "8b18b5578f66eab1501cba4cef2310d88bfb9a41",
+  "prototype_image": "recovery-1631/openclaw-tracing:local-20261117201500",
+  "prototype_image_id": "sha256:f3387bf0478db042fdeec389d812dda4fa9a54f3d4be478137b1ca36f0e80092",
+  "source_sha256": {
+    "runtime/agentteams-trace-context.ts": "644b5ea203d4c3b921574647f7af738931a857d3a154d17c00778b5dfdc9b220",
+    "runtime/agentteams-task-recovery.ts": "627fba31ddcb8b3773cef7b2f6184fbff9a790c0541d820db138cc5b5026b926",
+    "scripts/configure-runtime.py": "b43035fb59fc8d3a741e06b18c64fb45b76ebb8b8cd71ee5df22e749eb152e7c",
+    "patches/observability.patch": "6212addbf6e9d288a9e16fc6c034839b2f438f93af670af422a9bf78d8d63d90",
+    "tests/observability.test.ts": "6c7d2f06962fc406d8e289919a058f51b472a2b6cf8d986381a3176cac1a1b49"
+  },
+  "checks": {
+    "host": "13 passed; new observability projection test failed before change",
+    "native_schema_readback": "passed with common desired.observability endpoint/enabled/captureContent, networking disabled",
+    "native_recovery": "5 passed plus native mcporter discovery after trace context registration",
+    "native_exporter": "1 passed, actual native service/private provider to local HTTP/protobuf receiver, synthetic trusted run/model events",
+    "exported": "scoped Worker, Task, team, generation and native session; ingestion Authorization header checked",
+    "not_exported": "raw private model-content marker, ingestion header value in spans; metrics/logs disabled"
+  },
+  "not_tested": [
+    "real model tracing and Controller/Langfuse readback",
+    "Dashboard Tracing UI",
+    "normal OpenClaw restart with tracing",
+    "remaining full Harness recovery/fault matrix"
+  ]
+}

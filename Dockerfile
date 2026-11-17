@@ -34,6 +34,10 @@ RUN git -C /opt/openclaw apply /tmp/agentteams-task-coordination.patch
 COPY runtime/agentteams-task-recovery.ts /opt/openclaw/extensions/matrix/src/matrix/monitor/agentteams-task-recovery.ts
 COPY patches/task-recovery.patch /tmp/agentteams-task-recovery.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-task-recovery.patch
+COPY runtime/agentteams-trace-context.ts /opt/openclaw/extensions/matrix/src/matrix/monitor/agentteams-trace-context.ts
+COPY runtime/agentteams-trace-context.ts /opt/openclaw/extensions/diagnostics-otel/src/agentteams-trace-context.ts
+COPY patches/observability.patch /tmp/agentteams-observability.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-observability.patch
 
 # mc (MinIO Client) — real binary; wrapper installed after shared libs are copied
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin

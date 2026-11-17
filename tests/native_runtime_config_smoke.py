@@ -23,6 +23,8 @@ def main():
                                     'dm': {'policy': 'allowlist', 'allowFrom': ['@human:test']}}},
             'desired': {'model': {'model': 'worker-standard-model', 'gatewayUrl': 'http://gateway.invalid'},
                         'subagentModel': {'providerId': 'agentteams-gateway', 'model': 'helper-model'},
+                        'observability': {'revision': 'smoke', 'enabled': True, 'captureContent': False,
+                                          'collectorEndpoint': 'http://collector.invalid:4318'},
                         'heartbeat': {'enabled': False, 'every': '0m'}},
             'credentials': {'matrixTokenEnv': 'SMOKE_MATRIX_TOKEN', 'gatewayKeyEnv': 'SMOKE_MODEL_KEY'},
         }
@@ -37,7 +39,9 @@ def main():
         assert validation.get('valid') is True, 'native schema validation failed'
         for key, expected in [('agents.defaults.model.primary', 'agentteams-gateway/worker-standard-model'),
                               ('agents.defaults.subagents.model', 'agentteams-gateway/helper-model'),
-                              ('agents.defaults.workspace', temp), ('agents.defaults.heartbeat.every', '0m')]:
+                              ('agents.defaults.workspace', temp), ('agents.defaults.heartbeat.every', '0m'),
+                              ('diagnostics.otel.enabled', True), ('diagnostics.otel.captureContent', False),
+                              ('diagnostics.otel.endpoint', 'http://collector.invalid:4318')]:
             value = json.loads(subprocess.check_output(['openclaw', 'config', 'get', key, '--json'], env=env, text=True))
             assert value == expected, 'native readback mismatch for ' + key
         assert not (root / '.openclaw/agents').exists(), 'this check must not create native sessions'

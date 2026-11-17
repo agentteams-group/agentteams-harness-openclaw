@@ -91,6 +91,18 @@ def configure(workspace: Path, record_path: Path | None = None) -> Path:
         defaults.setdefault('subagents', {})['model'] = provider + '/' + model_id
     native.setdefault('plugins', {}).setdefault('load', {})['paths'] = ['/opt/openclaw/extensions/matrix']
     native['plugins'].setdefault('entries', {})['matrix'] = {'enabled': True}
+    tracing = record.get('desired', {}).get('observability')
+    if tracing is not None:
+        enabled = tracing['enabled'] is True
+        native['diagnostics'] = {'enabled': enabled, 'otel': {'enabled': enabled}}
+        if enabled:
+            if not tracing.get('collectorEndpoint'):
+                raise ValueError('Your standard tracing collector endpoint is unavailable')
+            native['diagnostics']['otel'].update(endpoint=tracing['collectorEndpoint'], protocol='http/protobuf',
+                traces=True, metrics=False, logs=False, captureContent=tracing.get('captureContent') is True,
+                serviceName='agentteams-worker')
+            native['plugins']['load']['paths'].append('/opt/openclaw/extensions/diagnostics-otel')
+            native['plugins']['entries']['diagnostics-otel'] = {'enabled': True}
     group_chat = native.setdefault('messages', {}).setdefault('groupChat', {})
     group_chat['mentionPatterns'] = [r'(^|[^A-Za-z0-9_@-])@' + re.escape(worker) + r'($|[^A-Za-z0-9_-])']
     if history is not None:

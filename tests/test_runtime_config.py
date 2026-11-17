@@ -151,6 +151,27 @@ class RuntimeConfigTest(unittest.TestCase):
             self.assertEqual(native['agents']['defaults']['subagents']['model'], 'agentteams-gateway/helper-model')
             self.assertIn('helper-model', [model['id'] for model in native['models']['providers']['agentteams-gateway']['models']])
 
+    def test_standard_observability_enables_native_export_and_disabled_record_removes_it(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+                'AGENTTEAMS_WORKER_NAME': 'worker', 'BOUND_MATRIX_TOKEN': 'token', 'BOUND_MODEL_KEY': 'key'}):
+            root = Path(temp)
+            (root / 'runtime').mkdir()
+            record = self.record()
+            for enabled in [True, False]:
+                record['desired']['observability'] = {'revision': 'controller-revision', 'enabled': enabled,
+                    'captureContent': False, 'collectorEndpoint': 'http://collector:4318' if enabled else ''}
+                (root / 'runtime/runtime.yaml').write_text(yaml.safe_dump(record))
+                native = json.loads(config.configure(root).read_text())
+                self.assertEqual(native['diagnostics']['otel']['enabled'], enabled)
+                if enabled:
+                    self.assertIn('/opt/openclaw/extensions/diagnostics-otel', native['plugins']['load']['paths'])
+                    self.assertTrue(native['plugins']['entries']['diagnostics-otel']['enabled'])
+                    self.assertEqual(native['diagnostics']['otel']['endpoint'], 'http://collector:4318')
+                    self.assertFalse(native['diagnostics']['otel']['captureContent'])
+                else:
+                    self.assertNotIn('diagnostics-otel', native['plugins']['entries'])
+                    self.assertNotIn('endpoint', native['diagnostics']['otel'])
+
 
 if __name__ == '__main__':
     unittest.main()

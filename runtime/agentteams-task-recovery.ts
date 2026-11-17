@@ -13,6 +13,7 @@ import { getMatrixRuntime } from "../../runtime.js";
 import type { CoreConfig } from "../../types.js";
 import type { MatrixClient } from "../sdk.js";
 import { resolveMatrixMonitorAccessState } from "./access-state.js";
+import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
 type Identity = { task_id: string; team_id: string; generation: number; instance_id: string };
 type Checkpoint = { delivery?: string; reply_txn?: string };
@@ -237,6 +238,9 @@ export class AgentTeamsTaskRecovery {
         + "Its scoped credentials and process identity are inherited. Do not replace it with raw Task metadata writes.\n";
       const messageId = this.sources.get(this.key(task.room_id, task.task_id))
         ?? `recovery:${identity.team_id}/${task.task_id}:${identity.generation}`;
+      registerTaskTraceContext(sessionKey, { "agentteams.task.id": identity.task_id,
+        "agentteams.team.id": identity.team_id, "agentteams.room.id": task.room_id,
+        "agentteams.execution.generation": identity.generation, "agentteams.event.id": messageId });
       const access = await resolveMatrixMonitorAccessState({ accountId, senderId: userId, isRoom: true,
         conversationId: task.room_id, allowFrom: [userId], storeAllowFrom: [], groupPolicy: "allowlist",
         groupAllowFrom: [userId], roomUsers: [userId], dmPolicy: "disabled" });

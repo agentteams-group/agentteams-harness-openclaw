@@ -32,6 +32,7 @@ jobs:
       - run: make direct-control-smoke VERSION=ci
       - run: make matrix-restart-smoke VERSION=ci
       - run: make task-recovery-smoke VERSION=ci
+      - run: make observability-smoke VERSION=ci
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

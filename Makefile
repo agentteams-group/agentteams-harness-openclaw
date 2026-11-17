@@ -8,7 +8,7 @@ SHARED_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):sha
 TEAMHARNESS_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):plugins/teamharness
 BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
 
-.PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke
+.PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke observability-smoke
 build:
 	docker build $(BUILD_ARGS) $(DOCKER_BUILD_ARGS) -t $(IMAGE):$(VERSION) .
 
@@ -32,3 +32,6 @@ matrix-restart-smoke:
 task-recovery-smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/task-recovery.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-recovery.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-task-recovery.test.ts'
 	docker run --rm --network none --entrypoint python3 -v "$(CURDIR)/tests/native_task_tools_smoke.py:/tmp/native_task_tools_smoke.py:ro" $(IMAGE):$(VERSION) /tmp/native_task_tools_smoke.py
+
+observability-smoke:
+	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/observability.test.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts'

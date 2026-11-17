@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "scope": "OpenClaw standard configuration through actual native validator and config readback; not a gateway/session/Task run",
+  "core_source": "3153576fab2bf3b767643b8f5a8df8715fc0f281",
+  "openclaw_source": "bb0b5a27627f9d4e8dfbc5b050487d296c132721",
+  "image": "recovery-1631/openclaw:local-20261117110855",
+  "image_id": "sha256:dfeb86999899478ff128e334c8dcde42aa8c971a87bf0ee0c9acb949dfc95a85",
+  "base_image": "higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-harness-openclaw:v1.2.7",
+  "base_digest": "sha256:8ef4e3fcfe995c93a778dded149755080e6aa0f3f69de0d32c0c0edd0f7dc863",
+  "sdk_version": "2026.10.9",
+  "sdk_git_revision": "8b18b5578f66eab1501cba4cef2310d88bfb9a41",
+  "file_sha256": {
+    "adapter": "975183a9a2dbb29ad8b013b6b9078e8a283ea415115879c1b09b0b3c4adefcb7",
+    "entrypoint": "03e8dcdcbb570f10d80eefcff6b065aa36d7c9686c4468a15a1b6f8b47753ecf",
+    "driver": "ca5e425b92ed948f26a01870bad07f6c21260064c1d68a472eb7944571c48ea9",
+    "projector": "96084895ea9bfe400cfa704ae38607d90eb24092589f4e1172a1c0b00344e862"
+  },
+  "log_sha256": "d3229353cf46d60ef391dd60705729ce4e5340509c0e192db518b41c7e8fc9f8",
+  "assertions": [
+    "standard record ignores invalid compatibility JSON",
+    "actual native schema validates before atomic publication",
+    "native CLI reads expected primary and subagent model, Worker workspace and disabled heartbeat",
+    "derived cache mode 0600"
+  ],
+  "network": "none",
+  "matrix_connected": false,
+  "model_calls": 0,
+  "task_execution_tested": false,
+  "full_gateway_startup_tested": false,
+  "limits": [
+    "local standard fixture; no running Controller/object storage",
+    "local overlay copies pure PyYAML for the parser; actual source image already installs python3-yaml",
+    "installed SDK schema/config helpers are real, but patched Task recovery and Matrix crypto/cursors are not tested",
+    "no claim of a passing OpenClaw Harness switch or automatic session inference"
+  ]
+}

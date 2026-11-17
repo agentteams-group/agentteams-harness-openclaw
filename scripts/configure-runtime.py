@@ -96,7 +96,9 @@ def configure(workspace: Path, record_path: Path | None = None) -> Path:
     if history is not None:
         group_chat['historyLimit'] = history
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', dir=target.parent, delete=False) as pending:
+    staging = workspace / 'credentials'
+    staging.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='w', dir=staging, prefix='.runtime-config-', delete=False) as pending:
         try:
             json.dump(native, pending)
             pending.close()

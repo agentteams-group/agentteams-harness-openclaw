@@ -257,7 +257,7 @@ start_config_sync() {
         ensure_mc_credentials 2>/dev/null || true
         if [ "${WORKER_CONFIG}" = "${WORKSPACE}/runtime/compat-config.json" ]; then
             local_record="${WORKSPACE}/runtime/runtime.yaml"
-            pending_record="${WORKSPACE}/runtime/.runtime-pending.yaml"
+            pending_record="${WORKSPACE}/credentials/.runtime-pending.yaml"
             if mc cp "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/runtime/runtime.yaml" "${pending_record}" 2>/dev/null; then
                 if ! cmp -s "${local_record}" "${pending_record}"; then
                     if python3 /opt/agentteams/scripts/configure-runtime.py "${WORKSPACE}" "${pending_record}" >/dev/null; then

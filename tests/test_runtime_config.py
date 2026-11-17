@@ -1,5 +1,4 @@
 """Standard Worker startup configuration; these do not run a Task or Matrix."""
-import copy
 import importlib.util
 import json
 import os
@@ -138,6 +137,7 @@ class RuntimeConfigTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     config.configure(root)
             self.assertEqual(target.read_bytes(), previous)
+            self.assertEqual(list((root / 'credentials').iterdir()), [])
 
     def test_declared_subagent_model_is_registered_and_selected(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {

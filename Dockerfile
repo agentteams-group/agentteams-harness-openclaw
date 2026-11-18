@@ -39,6 +39,9 @@ COPY runtime/agentteams-trace-context.ts /opt/openclaw/extensions/diagnostics-ot
 COPY patches/observability.patch /tmp/agentteams-observability.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-observability.patch
 
+# The gateway loads compiled extensions from dist. Rebuild them after patching.
+RUN cd /opt/openclaw && pnpm build
+
 # mc (MinIO Client) — real binary; wrapper installed after shared libs are copied
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin
 

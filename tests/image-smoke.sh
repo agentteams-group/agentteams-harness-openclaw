@@ -11,7 +11,7 @@ mc.bin --version
 mc --version
 test -r /opt/agentteams/scripts/lib/task_recovery_rpc.py
 test -r /opt/agentteams/plugins/teamharness/mcp/server.py
-test -r /opt/openclaw/extensions/matrix/src/matrix/monitor/agentteams-task-recovery.ts
+grep -rlF --include='*.js' 'Task recovery deferred; authority unavailable' /opt/openclaw/dist >/dev/null
 bash -n /opt/agentteams/scripts/worker-entrypoint.sh
 source /opt/agentteams/scripts/lib/agentteams-env.sh
 source /opt/agentteams/scripts/lib/merge-openclaw-config.sh

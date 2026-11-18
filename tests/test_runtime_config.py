@@ -18,6 +18,28 @@ spec.loader.exec_module(config)
 
 
 class NativeValidationTest(unittest.TestCase):
+    def test_validation_does_not_open_the_running_worker_state(self):
+        with tempfile.TemporaryDirectory() as temp:
+            live = Path(temp) / '.openclaw'
+            live.mkdir()
+            config_file = Path(temp) / 'candidate.json'
+            config_file.write_text('{}')
+            with patch.dict(os.environ, {'OPENCLAW_STATE_DIR': str(live)}):
+                def validate(command, *, env, **kwargs):
+                    self.assertEqual(command, ['openclaw', 'config', 'validate', '--json'])
+                    self.assertEqual(env['OPENCLAW_CONFIG_PATH'], str(config_file))
+                    isolated = Path(env['OPENCLAW_STATE_DIR'])
+                    self.assertNotEqual(isolated, live)
+                    self.assertTrue(isolated.is_dir())
+                    (isolated / 'state.sqlite').write_bytes(b'validation')
+                    return config.subprocess.CompletedProcess(command, 0, '{"valid":true}', '')
+
+                with patch.object(config.subprocess, 'run', side_effect=validate) as native:
+                    config.validate_native(config_file)
+                self.assertEqual(os.environ['OPENCLAW_STATE_DIR'], str(live))
+                self.assertFalse(Path(native.call_args.kwargs['env']['OPENCLAW_STATE_DIR']).exists())
+                self.assertEqual(list(live.iterdir()), [])
+
     def test_process_exit_and_unreadable_report_are_diagnosed_without_output(self):
         for returncode, expected in ((-9, "signal 9"), (1, "exit status 1"), (0, "no valid report")):
             with self.subTest(returncode=returncode):

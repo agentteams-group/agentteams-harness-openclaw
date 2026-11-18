@@ -14,8 +14,12 @@ from worker_runtime_config import project
 
 
 def validate_native(path):
-    result = subprocess.run(['openclaw', 'config', 'validate', '--json'],
-                            env={**os.environ, 'OPENCLAW_CONFIG_PATH': str(path)}, capture_output=True, text=True)
+    # The CLI can open the state database during validation. Give it its
+    # own state directory so validating JSON leaves the native session alone.
+    with tempfile.TemporaryDirectory(prefix='openclaw-config-validation-') as state:
+        result = subprocess.run(['openclaw', 'config', 'validate', '--json'],
+                                env={**os.environ, 'OPENCLAW_CONFIG_PATH': str(path), 'OPENCLAW_STATE_DIR': state},
+                                capture_output=True, text=True)
     try:
         valid = json.loads(result.stdout).get('valid') is True
     except (ValueError, AttributeError):

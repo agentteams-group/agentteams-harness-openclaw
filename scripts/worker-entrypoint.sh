@@ -65,7 +65,7 @@ log "Pulling Worker config from centralized storage..."
 ensure_mc_credentials 2>/dev/null || true
 RETRY=0
 until mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/" "${WORKSPACE}/" --overwrite \
-    --exclude ".openclaw/matrix/**" --exclude ".openclaw/canvas/**" --exclude "credentials/**"; do
+    --exclude ".openclaw/matrix/**" --exclude ".openclaw/credentials/matrix/**" --exclude ".openclaw/canvas/**" --exclude "credentials/**"; do
     RETRY=$((RETRY + 1))
     if [ "${RETRY}" -gt 6 ]; then
         log "ERROR: failed to pull Worker config from MinIO after retries"
@@ -81,9 +81,15 @@ mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/shared/" "${AGENTTEAMS_ROOT}/shared/" --
 PULL_MARKER="${WORKSPACE}/.last-pull"
 touch "${PULL_MARKER}"
 
+# Project the Worker record before opening any native SDK state. The external
+# OpenClaw compatibility file remains the entry point of older installations.
+render_worker_config() {
+    PYTHONPATH="/opt/agentteams/scripts/lib${PYTHONPATH:+:${PYTHONPATH}}" python3 /opt/agentteams/scripts/openclaw_worker_config.py "${WORKSPACE}" "$@"
+}
+WORKER_CONFIG_PATH=$(render_worker_config)
 # Verify essential files exist, retry if sync is still in progress
 RETRY=0
-while [ ! -f "${WORKSPACE}/openclaw.json" ] || [ ! -f "${WORKSPACE}/SOUL.md" ] \
+while [ ! -f "${WORKER_CONFIG_PATH}" ] || [ ! -f "${WORKSPACE}/SOUL.md" ] \
       || [ ! -f "${WORKSPACE}/AGENTS.md" ]; do
     RETRY=$((RETRY + 1))
     if [ "${RETRY}" -gt 6 ]; then
@@ -93,14 +99,15 @@ while [ ! -f "${WORKSPACE}/openclaw.json" ] || [ ! -f "${WORKSPACE}/SOUL.md" ] \
     log "Waiting for config files to appear in MinIO (attempt ${RETRY}/6)..."
     sleep 5
     mc mirror "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/" "${WORKSPACE}/" --overwrite \
-        --exclude ".openclaw/matrix/**" --exclude ".openclaw/canvas/**" --exclude "credentials/**" 2>/dev/null || true
+        --exclude ".openclaw/matrix/**" --exclude ".openclaw/credentials/matrix/**" --exclude ".openclaw/canvas/**" --exclude "credentials/**" 2>/dev/null || true
+    WORKER_CONFIG_PATH=$(render_worker_config)
     touch "${PULL_MARKER}"
 done
 
 # HOME is already set to WORKSPACE via docker run -e HOME=...
 # Symlink to default OpenClaw config path so CLI commands find the config
 mkdir -p "${HOME}/.openclaw"
-ln -sf "${WORKSPACE}/openclaw.json" "${HOME}/.openclaw/openclaw.json"
+ln -sfn "${WORKER_CONFIG_PATH}" "${HOME}/.openclaw/openclaw.json"
 
 # Create symlink for skills CLI: ~/.agents/skills -> ~/skills
 # This makes `skills add -g` install skills directly into ~/skills/ (same as file-sync)
@@ -120,7 +127,7 @@ log "Worker config pulled successfully"
 # remote->local merge below runs only after its initial 5-minute sleep, so
 # sourcing the merge helper alone does not cover an existing workspace that
 # still has pre-v2026.10.6 keys.
-if ! migrate_openclaw_config "${WORKSPACE}/openclaw.json"; then
+if ! migrate_openclaw_config "${WORKER_CONFIG_PATH}"; then
     log "ERROR: failed to migrate openclaw.json to the current schema; refusing to start the gateway"
     exit 1
 fi
@@ -129,14 +136,14 @@ log "Migrated openclaw.json to the current OpenClaw schema"
 # Replace historical tools.elevated.allowFrom.matrix=["*"] with this
 # worker's existing Matrix allowlist. tools is local-first on sync, so
 # a leftover wildcard would otherwise survive a tighter MinIO config.
-if jq -e '.tools.elevated.allowFrom.matrix == ["*"]' "${WORKSPACE}/openclaw.json" >/dev/null 2>&1 \
+if jq -e '.tools.elevated.allowFrom.matrix == ["*"]' "${WORKER_CONFIG_PATH}" >/dev/null 2>&1 \
     && jq -e '((.channels.matrix.groupAllowFrom // .channels.matrix.dm.allowFrom // []) | length) > 0' \
-        "${WORKSPACE}/openclaw.json" >/dev/null 2>&1; then
+        "${WORKER_CONFIG_PATH}" >/dev/null 2>&1; then
     if jq '
         (.channels.matrix.groupAllowFrom // .channels.matrix.dm.allowFrom // []) as $ids
         | .tools.elevated.allowFrom.matrix = $ids
-    ' "${WORKSPACE}/openclaw.json" > /tmp/openclaw-elevated.json; then
-        mv /tmp/openclaw-elevated.json "${WORKSPACE}/openclaw.json"
+    ' "${WORKER_CONFIG_PATH}" > /tmp/openclaw-elevated.json; then
+        mv /tmp/openclaw-elevated.json "${WORKER_CONFIG_PATH}"
         log "Migrated tools.elevated.allowFrom.matrix from wildcard to groupAllowFrom/dm.allowFrom"
     else
         rm -f /tmp/openclaw-elevated.json
@@ -154,7 +161,7 @@ _diag_plugin_dir="/opt/openclaw/extensions/diagnostics-otel"
 if [ -f "${_diag_plugin_dir}/package.json" ] && \
    jq -e --arg dir "${_diag_plugin_dir}" \
         '(.plugins.load.paths // []) | index($dir) != null' \
-        "${WORKSPACE}/openclaw.json" > /dev/null 2>&1; then
+        "${WORKER_CONFIG_PATH}" > /dev/null 2>&1; then
     if [ ! -d "${_diag_plugin_dir}/node_modules" ]; then
         log "diagnostics-otel: installing npm dependencies (required for metrics)..."
         if (cd "${_diag_plugin_dir}" && npm install --omit=dev --ignore-scripts >/tmp/agentteams-diag-install.log 2>&1); then
@@ -253,6 +260,11 @@ start_config_sync() {
         ensure_mc_credentials 2>/dev/null || true
         if mc cp "${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/openclaw.json" /tmp/openclaw-policy-remote.json 2>/dev/null; then
             if ! cmp -s /tmp/openclaw-policy-remote.json /tmp/openclaw-policy-applied.json; then
+                if [ "${WORKER_CONFIG_PATH:-${WORKSPACE}/openclaw.json}" != "${WORKSPACE}/openclaw.json" ]; then
+                    render_worker_config --compatibility /tmp/openclaw-policy-remote.json >/dev/null || continue
+                    cp /tmp/openclaw-policy-remote.json /tmp/openclaw-policy-applied.json
+                    continue
+                fi
                 if merge_openclaw_config /tmp/openclaw-policy-remote.json "${WORKSPACE}/openclaw.json"; then
                     if [ "${AGENTTEAMS_AGENT_ROLE:-}" = "manager" ]; then
                         prepare_manager_config || { log "WARNING: native Manager config validation failed"; continue; }
@@ -341,7 +353,7 @@ export MCPORTER_CONFIG="${MCPORTER_DEFAULT}"
 # Step 5: Launch OpenClaw Worker Agent
 # ============================================================
 log "Starting Worker Agent: ${WORKER_NAME}"
-export OPENCLAW_CONFIG_PATH="${WORKSPACE}/openclaw.json"
+export OPENCLAW_CONFIG_PATH="${WORKER_CONFIG_PATH}"
 cd "${WORKSPACE}"
 
 # Clean orphaned session write locks (e.g. from SIGKILL or crash before exit handlers)
@@ -349,54 +361,52 @@ cd "${WORKSPACE}"
 find "${HOME}/.openclaw/agents" -name "*.jsonl.lock" -delete 2>/dev/null || true
 log "Cleaned up any orphaned session write locks"
 
-# Clean Matrix crypto storage (SQLite WAL may be corrupted after unclean shutdown)
-# Crypto state is re-negotiated on startup; losing it only means re-establishing E2EE sessions
-rm -rf "${HOME}/.openclaw/matrix" 2>/dev/null || true
-log "Cleaned Matrix crypto storage (will re-establish E2EE sessions)"
-
-# ============================================================
-# Step 5b: Re-login to Matrix to get fresh access token + device ID
-# ============================================================
-# Under E2EE, reusing the old access token (same device_id) with a new
-# identity key (crypto storage was just wiped) causes other clients to
-# reject key distribution. Re-login creates a new device_id, matching
-# the Manager's behavior and allowing clean E2EE session establishment.
+# Keep a managed device's ciphertext keys and native credentials across process
+# restarts. A replacement without this local store lets the SDK login afresh.
 MATRIX_PASSWORD_FILE="${AGENTTEAMS_STORAGE_PREFIX}/agents/${WORKER_NAME}/credentials/matrix/password"
 MATRIX_PASSWORD=$(mc cat "${MATRIX_PASSWORD_FILE}" 2>/dev/null) || true
-if [ -n "${MATRIX_PASSWORD}" ]; then
-    # Read homeserver URL from openclaw.json (already pulled from MinIO)
-    MATRIX_SERVER=$(jq -r '.channels.matrix.homeserver // empty' "${WORKSPACE}/openclaw.json" 2>/dev/null)
-
-    if [ -n "${MATRIX_SERVER}" ]; then
-        log "Re-logging into Matrix to get fresh access token and device ID..."
-        LOGIN_RESP=$(curl -sf -X POST "${MATRIX_SERVER}/_matrix/client/v3/login" \
-            -H 'Content-Type: application/json' \
-            -d '{
-                "type": "m.login.password",
-                "identifier": {"type": "m.id.user", "user": "'"${WORKER_NAME}"'"},
-                "password": "'"${MATRIX_PASSWORD}"'"
-            }' 2>/dev/null) || true
-
-        NEW_TOKEN=$(echo "${LOGIN_RESP}" | jq -r '.access_token // empty' 2>/dev/null)
-        NEW_DEVICE=$(echo "${LOGIN_RESP}" | jq -r '.device_id // empty' 2>/dev/null)
-
-        if [ -n "${NEW_TOKEN}" ] && [ "${NEW_TOKEN}" != "null" ]; then
-            # Update openclaw.json with the fresh token
-            jq --arg token "${NEW_TOKEN}" '.channels.matrix.accessToken = $token' \
-                "${WORKSPACE}/openclaw.json" > /tmp/openclaw-relogin.json \
-                && mv /tmp/openclaw-relogin.json "${WORKSPACE}/openclaw.json"
-            log "Matrix re-login successful (new device: ${NEW_DEVICE}, token prefix: ${NEW_TOKEN:0:10}...)"
-        else
-            log "WARNING: Matrix re-login failed, using existing access token (E2EE may not work with Element Web)"
-            log "  Response: ${LOGIN_RESP}"
-        fi
-    else
-        log "WARNING: Missing homeserver URL in openclaw.json, skipping Matrix re-login"
+if [ "${WORKER_CONFIG_PATH}" != "${WORKSPACE}/openclaw.json" ]; then
+    if [ -n "${MATRIX_PASSWORD}" ] && jq -e '.channels.matrix.encryption == true' "${WORKER_CONFIG_PATH}" >/dev/null; then
+        export AGENTTEAMS_OPENCLAW_DEVICE_PASSWORD="${MATRIX_PASSWORD}"
+        render_worker_config >/dev/null
     fi
-    # Clear password from memory
-    MATRIX_PASSWORD=""
 else
-    log "No Matrix password found in MinIO, skipping re-login (E2EE may not work after restart)"
+    rm -rf "${HOME}/.openclaw/matrix" 2>/dev/null || true
+    if [ -n "${MATRIX_PASSWORD}" ]; then
+        # Read homeserver URL from openclaw.json (already pulled from MinIO)
+        MATRIX_SERVER=$(jq -r '.channels.matrix.homeserver // empty' "${WORKSPACE}/openclaw.json" 2>/dev/null)
+
+        if [ -n "${MATRIX_SERVER}" ]; then
+            log "Re-logging into Matrix to get fresh access token and device ID..."
+            LOGIN_RESP=$(curl -sf -X POST "${MATRIX_SERVER}/_matrix/client/v3/login" \
+                -H 'Content-Type: application/json' \
+                -d '{
+                    "type": "m.login.password",
+                    "identifier": {"type": "m.id.user", "user": "'"${WORKER_NAME}"'"},
+                    "password": "'"${MATRIX_PASSWORD}"'"
+                }' 2>/dev/null) || true
+
+            NEW_TOKEN=$(echo "${LOGIN_RESP}" | jq -r '.access_token // empty' 2>/dev/null)
+            NEW_DEVICE=$(echo "${LOGIN_RESP}" | jq -r '.device_id // empty' 2>/dev/null)
+
+            if [ -n "${NEW_TOKEN}" ] && [ "${NEW_TOKEN}" != "null" ]; then
+                # Update openclaw.json with the fresh token
+                jq --arg token "${NEW_TOKEN}" '.channels.matrix.accessToken = $token' \
+                    "${WORKSPACE}/openclaw.json" > /tmp/openclaw-relogin.json \
+                    && mv /tmp/openclaw-relogin.json "${WORKSPACE}/openclaw.json"
+                log "Matrix re-login successful (new device: ${NEW_DEVICE})"
+            else
+                log "WARNING: Matrix re-login failed, using existing access token (E2EE may not work with Element Web)"
+                log "  Response: ${LOGIN_RESP}"
+            fi
+        else
+            log "WARNING: Missing homeserver URL in openclaw.json, skipping Matrix re-login"
+        fi
+        # Clear password from memory
+        MATRIX_PASSWORD=""
+    else
+        log "No Matrix password found in MinIO, skipping re-login (E2EE may not work after restart)"
+    fi
 fi
 
 # Materialize the selected Harness's native Manager configuration.

@@ -30,6 +30,7 @@ class RuntimeConfigTest(unittest.TestCase):
                 'storage': {'memberPrefix': 'agents/worker'},
                 'matrix': {'transport': {'homeserver': 'http://matrix.test', 'encryption': True,
                                         'groupPolicy': 'allowlist', 'groupAllowFrom': ['@leader:test'],
+                                        'requireMention': True, 'freeResponseRooms': ['!team:test'],
                                         'dm': {'policy': 'allowlist', 'allowFrom': ['@human:test']}}},
                 'desired': {'model': {'model': 'worker-model', 'gatewayUrl': 'http://gateway.test', 'input': ['text']}},
                 'credentials': {'matrixTokenEnv': 'BOUND_MATRIX_TOKEN', 'gatewayKeyEnv': 'BOUND_MODEL_KEY'}}
@@ -54,7 +55,10 @@ class RuntimeConfigTest(unittest.TestCase):
             self.assertEqual(matrix['groupAllowFrom'], ['@leader:test'])
             self.assertEqual(matrix['dm']['allowFrom'], ['@human:test'])
             self.assertFalse(matrix['groups']['!home:test']['requireMention'])
+            self.assertFalse(matrix['groups']['!team:test']['requireMention'])
+            self.assertTrue(matrix['groups']['*']['requireMention'])
             self.assertNotIn('homeRoomId', matrix)
+            self.assertNotIn('freeResponseRooms', matrix)
             self.assertTrue(matrix['network']['dangerouslyAllowPrivateNetwork'])
 
     def test_standard_model_never_reads_stale_compatibility_data(self):

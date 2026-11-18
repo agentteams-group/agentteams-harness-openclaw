@@ -60,14 +60,15 @@ def configure(workspace: Path, record_path: Path | None = None) -> Path:
                 matrix['accessToken'] = current
     home_room = matrix.pop('homeRoomId', '')
     require_mention = matrix.pop('requireMention', True)
-    matrix.pop('freeResponseRooms', None)
+    free_response_rooms = matrix.pop('freeResponseRooms', None) or []
     matrix.pop('dmMentionThreads', None)
     history = matrix.pop('historyLimit', None)
     matrix.update(enabled=True, autoJoin='always',
                   network={'dangerouslyAllowPrivateNetwork': True},
                   groups={'*': {'requireMention': require_mention}})
-    if home_room:
-        matrix['groups'][home_room] = {'requireMention': False}
+    for room in [home_room, *free_response_rooms]:
+        if room and room != '*':
+            matrix['groups'][room] = {'requireMention': False}
     defaults = native.setdefault('agents', {}).setdefault('defaults', {})
     heartbeat = record.get('desired', {}).get('heartbeat') or {'enabled': False, 'every': '0m'}
     defaults.update(workspace=str(workspace), heartbeat={'every': heartbeat['every'] if heartbeat['enabled'] else '0m'})

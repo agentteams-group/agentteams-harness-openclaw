@@ -13,7 +13,7 @@ import { appendSessionTranscriptMessageByIdentity } from "openclaw/plugin-sdk/se
 import { createExecTool } from "/opt/openclaw/src/agents/bash-tools.exec-run.ts";
 import { getMatrixRuntime } from "../../runtime.js";
 import { installMatrixMonitorTestRuntime, resetMatrixTestStores } from "../../test-runtime.js";
-import { AgentTeamsTaskRecovery, taskRecoveryRPC } from "./agentteams-task-recovery.js";
+import { AgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
 
 let home: string;
 let server: Server;
@@ -21,7 +21,9 @@ let recovery: AgentTeamsTaskRecovery;
 let task: any;
 let cfg: any;
 let headers: Array<Record<string, unknown>>;
-const identity = { task_id: "T", team_id: "team", generation: 2, instance_id: "container/new-start" };
+let sessionCache: Record<string, unknown> | null;
+let configGeneration: number;
+const identity = { task_id: "T", team_id: "team", generation: 2, instance_id: "container/new-start", process_id: "new-boot" };
 
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "at-openclaw-recovery-"));
@@ -37,12 +39,35 @@ beforeEach(async () => {
     execution: { generation: 2, instance_id: identity.instance_id, process_id: "new-boot", state: "active",
       checkpoint: { version: 4, completed_steps: ["one"], remaining_steps: ["two", "three"] } } };
   headers = [];
+  sessionCache = null;
+  configGeneration = 1;
   server = createServer(async (request, response) => {
     headers.push(request.headers);
     response.setHeader("Content-Type", "application/json");
     if (request.headers.authorization !== "Bearer fixture-worker-token"
         || request.headers["x-agentteams-process-id"] !== "new-boot") {
       response.writeHead(403).end(JSON.stringify({ error: "wrong identity" })); return;
+    }
+    if (request.url === "/api/v1/runtime/matrix") {
+      response.end(JSON.stringify({ runtime: "openclaw", instance_id: identity.instance_id, etag: "" }));
+      return;
+    }
+    if (request.url === "/api/v1/runtime/sessions?kind=task&team=team&task=T") {
+      const current = { checkpoint_version: task.execution.checkpoint.version,
+        checkpoint_digest: `checkpoint-${task.execution.checkpoint.version}`, config_generation: configGeneration };
+      if (request.method === "PUT") {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        const input = JSON.parse(body);
+        expect(sessionCache ? request.headers["if-match"] : request.headers["if-none-match"]).toBe(sessionCache ? "cache" : "*");
+        expect(input).toMatchObject({ ...current, process_id: identity.process_id, generation: identity.generation });
+        sessionCache = { ...input, runtime: "openclaw" };
+      }
+      response.end(JSON.stringify({ ...current, runtime: "openclaw", work: { kind: "task", team_id: "team", task_id: "T" },
+        cache: sessionCache, compatible: !!sessionCache && sessionCache.checkpoint_digest === current.checkpoint_digest
+          && sessionCache.config_generation === configGeneration,
+        etag: sessionCache ? "cache" : "", generation: identity.generation, instance_id: identity.instance_id }));
+      return;
     }
     if (request.method === "GET" && request.url === "/api/v1/tasks/recoverable") {
       response.end(JSON.stringify({ instance_id: identity.instance_id,
@@ -109,35 +134,37 @@ it("uses the shared scoped client and resends saved bytes without inference or e
 
 it("reuses only real fresh SQLite sessions matching the authoritative checkpoint and transcript", async () => {
   create();
-  const current = await taskRecoveryRPC<{ checkpoint_digest: string }>({ action: "current", identity });
-  const sessionKey = await recovery.selectSession("team", task, current.checkpoint_digest, "main");
+  const selection = await recovery.selectSession("team", task, "main");
+  const sessionKey = selection.sessionKey;
   const nativeId = await seed(sessionKey);
-  await recovery.remember(identity, sessionKey, "main");
-  expect(await recovery.selectSession("team", task, current.checkpoint_digest, "main")).toBe(sessionKey);
-  expect(fs.statSync(path.join(home, "runtime/openclaw-task-sessions.json")).mode & 0o777).toBe(0o600);
+  await recovery.remember(identity, selection, "main");
+  expect((await recovery.selectSession("team", task, "main")).sessionKey).toBe(sessionKey);
+  expect(sessionCache).toMatchObject({ native_ref: sessionKey, checkpoint_version: 4, config_generation: 1 });
   const now = Date.now();
   vi.spyOn(Date, "now").mockReturnValue(now + 120000);
-  expect(await recovery.selectSession("team", task, current.checkpoint_digest, "main")).not.toBe(sessionKey);
+  expect((await recovery.selectSession("team", task, "main")).sessionKey).not.toBe(sessionKey);
   vi.restoreAllMocks();
   task.execution.checkpoint.version++;
-  const newer = await taskRecoveryRPC<{ checkpoint_digest: string }>({ action: "current", identity });
-  expect(await recovery.selectSession("team", task, newer.checkpoint_digest, "main")).not.toBe(sessionKey);
+  expect((await recovery.selectSession("team", task, "main")).sessionKey).not.toBe(sessionKey);
   task.execution.checkpoint.version--;
+  configGeneration++;
+  expect((await recovery.selectSession("team", task, "main")).sessionKey).not.toBe(sessionKey);
+  await recovery.remember(identity, selection, "main");
+  expect(sessionCache).toMatchObject({ config_generation: 1 });
+  configGeneration--;
   await appendSessionTranscriptMessageByIdentity({ agentId: "main", sessionKey, sessionId: nativeId,
     message: { role: "assistant", content: "uncommitted newer native state" } });
-  expect(await recovery.selectSession("team", task, current.checkpoint_digest, "main")).not.toBe(sessionKey);
+  expect((await recovery.selectSession("team", task, "main")).sessionKey).not.toBe(sessionKey);
   expect((await getSessionEntryAsync({ agentId: "main", sessionKey }))?.sessionId).toBe(nativeId);
 });
 
 it("keeps source identity in the native context and delivers the authoritative report after native closure", async () => {
-  let sessionKey = "";
   const run = vi.fn(async (params) => {
     const input = await params.adapter.ingest(params.raw);
     const turn = await params.adapter.resolveTurn(input, { kind: "message", canStartAgentTurn: true }, {});
     expect(turn.ctxPayload.MessageSid).toBe("$assignment-source");
     await turn.replyOptions.onAgentRunStart("native-run");
-    sessionKey = turn.route.sessionKey;
-    await seed(sessionKey, turn.ctxPayload.BodyForAgent);
+    await seed(turn.route.sessionKey, turn.ctxPayload.BodyForAgent);
     Object.assign(task, { status: "submitted", result_path: "shared/tasks/T/report.md" });
     Object.assign(task.execution.checkpoint, { result: { key: "saved", sha256: "fixture", size: 26 },
       delivery: "pending", reply_txn: "saved-report-txn" });
@@ -147,12 +174,9 @@ it("keeps source identity in the native context and delivers the authoritative r
   const send = create(run);
   await recovery.acceptSource("T", task.room_id, "$assignment-source");
   await expect.poll(() => task.execution.checkpoint.delivery, { timeout: 20000 }).toBe("delivered");
-  await expect.poll(() => fs.existsSync(path.join(home, "runtime/openclaw-task-sessions.json")),
-                    { timeout: 20000 }).toBe(true);
   expect(send).toHaveBeenCalledOnce();
   expect(send.mock.calls[0][1].body).toBe("authoritative saved report");
-  const current = await taskRecoveryRPC<{ checkpoint_digest: string }>({ action: "current", identity });
-  expect(await recovery.selectSession("team", task, current.checkpoint_digest, "main")).toBe(sessionKey);
+  expect(sessionCache).toBeNull();
   await recovery.scan();
   expect(run).toHaveBeenCalledOnce();
 });
@@ -194,8 +218,7 @@ it("retains a completed native admission across Matrix monitor reload in the sam
   });
   create(run);
   await recovery.scan();
-  await expect.poll(() => fs.existsSync(path.join(home, "runtime/openclaw-task-sessions.json")),
-                    { timeout: 20000 }).toBe(true);
+  await expect.poll(() => sessionCache, { timeout: 20000 }).not.toBeNull();
   await recovery.stop();
   expect(task.status).toBe("in_progress");
   expect(task.execution.checkpoint.delivery).toBe("delivered");

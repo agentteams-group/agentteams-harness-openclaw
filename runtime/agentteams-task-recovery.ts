@@ -1,9 +1,6 @@
 // Native conversations are caches. The shared Python client owns Task protocol.
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { finalizeInboundContext } from "openclaw/plugin-sdk/reply-runtime";
 import {
   evaluateSessionFreshness, getSessionEntryAsync, loadTranscriptEventsSync,
@@ -15,15 +12,17 @@ import type { MatrixClient } from "../sdk.js";
 import { resolveMatrixMonitorAccessState } from "./access-state.js";
 import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
-type Identity = { task_id: string; team_id: string; generation: number; instance_id: string };
+type Identity = { task_id: string; team_id: string; generation: number; instance_id: string; process_id: string };
 type Checkpoint = { delivery?: string; reply_txn?: string };
 type Task = { task_id: string; room_id: string; status: string; title?: string; execution: {
   generation: number; instance_id: string; process_id: string; state: string; checkpoint?: Checkpoint;
 } };
 type Snapshot = { instance_id: string; tasks: Array<{ task: Task; team_id: string; etag: string }> };
-type Claimed = { task: Task; saved_result: string; resume_text: string; checkpoint_digest: string };
-type Cache = { runtime: "openclaw"; authority: string; session_key: string; session_id: string;
-  checkpoint_digest: string; native_digest: string; expires_at: number };
+type Claimed = { task: Task; saved_result: string; resume_text: string };
+type SessionWork = { kind: "task"; team_id: string; task_id: string };
+type SessionView = { compatible: boolean; config_generation: number;
+  cache?: { native_ref: string } | null };
+type SessionSelection = { sessionKey: string; configGeneration?: number };
 type RPC = <T>(request: Record<string, unknown>) => Promise<T>;
 
 export class RecoveryRPCError extends Error {
@@ -65,8 +64,7 @@ export class AgentTeamsTaskRecovery {
   private admitted: Set<string>;
   private sources = new Map<string, string>();
   private active = new Map<string, { controller: AbortController; done: Promise<void> }>();
-  private cachePath: string;
-  private authority: string;
+  private registered = false;
   private rpc: RPC;
 
   constructor(private options: {
@@ -76,24 +74,14 @@ export class AgentTeamsTaskRecovery {
   }) {
     this.rpc = options.rpc ?? taskRecoveryRPC;
     this.ready = new Promise((resolve) => { this.admitReady = resolve; });
-    const home = process.env.AGENTTEAMS_WORKER_HOME ?? os.homedir();
-    this.cachePath = path.join(home, "runtime", "openclaw-task-sessions.json");
-    // An endpoint change invalidates this local cache, never the durable Task ID.
-    this.authority = this.digest([process.env.AGENTTEAMS_CONTROLLER_URL, options.userId]);
-    const scope = this.digest([this.authority, options.accountId, process.env.AGENTTEAMS_PROCESS_ID]);
+    const scope = this.digest([process.env.AGENTTEAMS_CONTROLLER_URL, options.userId, options.accountId,
+      process.env.AGENTTEAMS_PROCESS_ID]);
     this.admitted = processAdmissions.get(scope) ?? new Set<string>();
     processAdmissions.set(scope, this.admitted);
   }
 
   private digest(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
   private key(team: string, task: string) { return this.digest([team, task]); }
-  private readCache(): Record<string, Cache> {
-    try {
-      const value = JSON.parse(fs.readFileSync(this.cachePath, "utf8"));
-      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    } catch { return {}; }
-  }
-
   start() {
     const scan = () => { void this.scan().catch(() => this.options.warn("Task recovery deferred; authority unavailable")); };
     scan();
@@ -115,18 +103,28 @@ export class AgentTeamsTaskRecovery {
     await this.scan();
   }
 
-  async selectSession(team: string, task: Task, checkpointDigest: string, agentId: string) {
+  private async sessionView(work: SessionWork) {
+    try {
+      return await this.rpc<SessionView>({ action: "session.load", runtime: "openclaw", work });
+    } catch (error) {
+      // Unresolved effects still go through the authority's recovery path.
+      if (error instanceof RecoveryRPCError && error.kind === "conflict") return;
+      throw error;
+    }
+  }
+
+  async selectSession(team: string, task: Task, agentId: string): Promise<SessionSelection> {
     const prefix = `agent:${agentId}:agentteams-task:${this.key(team, task.task_id)}:`;
-    const cached = this.readCache()[this.key(team, task.task_id)];
-    if (cached?.runtime === "openclaw" && cached.authority === this.authority
-        && typeof cached.session_key === "string" && cached.session_key.startsWith(prefix) && cached.expires_at > Date.now() / 1000
-        && cached.checkpoint_digest === checkpointDigest) {
-      const native = await this.native(cached.session_key, agentId);
-      if (native && native.entry.sessionId === cached.session_id && native.digest === cached.native_digest) {
-        return cached.session_key;
+    const view = await this.sessionView({ kind: "task", team_id: team, task_id: task.task_id });
+    const cached = view?.cache?.native_ref;
+    if (view?.compatible && cached?.startsWith(prefix)) {
+      const digest = await this.native(cached, agentId);
+      if (digest && await this.rpc<boolean>({ action: "session.usable", runtime: "openclaw",
+        snapshot: view, native_ref: cached, native_digest: digest })) {
+        return { sessionKey: cached, configGeneration: view.config_generation };
       }
     }
-    return prefix + randomUUID();
+    return { sessionKey: prefix + randomUUID(), configGeneration: view?.config_generation };
   }
 
   private async native(sessionKey: string, agentId: string) {
@@ -137,29 +135,28 @@ export class AgentTeamsTaskRecovery {
     if (!evaluateSessionFreshness({ updatedAt: entry.updatedAt, now: Date.now(), policy }).fresh) return;
     const events = loadTranscriptEventsSync({ sessionKey, agentId, sessionId: entry.sessionId });
     if (!events.length) return;
-    return { entry, digest: this.digest({ entry, events }) };
+    return this.digest({ sessionId: entry.sessionId, events });
   }
 
-  async remember(identity: Identity, sessionKey: string, agentId: string) {
-    const current = await this.rpc<{ checkpoint_digest: string }>({ action: "current", identity });
-    const native = await this.native(sessionKey, agentId);
-    if (!native) return;
-    const cache = this.readCache();
-    cache[this.key(identity.team_id, identity.task_id)] = { runtime: "openclaw", authority: this.authority,
-      session_key: sessionKey, session_id: native.entry.sessionId, native_digest: native.digest,
-      checkpoint_digest: current.checkpoint_digest, expires_at: Date.now() / 1000 + 86400 };
-    fs.mkdirSync(path.dirname(this.cachePath), { recursive: true });
-    const pending = this.cachePath + "." + randomUUID();
-    try {
-      fs.writeFileSync(pending, JSON.stringify(cache), { mode: 0o600 });
-      fs.renameSync(pending, this.cachePath);
-    } finally { fs.rmSync(pending, { force: true }); }
+  async remember(identity: Identity, selection: SessionSelection, agentId: string) {
+    if (selection.configGeneration === undefined) return;
+    const work: SessionWork = { kind: "task", team_id: identity.team_id, task_id: identity.task_id };
+    const snapshot = await this.sessionView(work);
+    if (!snapshot || snapshot.config_generation !== selection.configGeneration) return;
+    const digest = await this.native(selection.sessionKey, agentId);
+    if (!digest) return;
+    await this.rpc({ action: "session.remember", runtime: "openclaw", work, snapshot, identity,
+      native_ref: selection.sessionKey, native_digest: digest, expires_at: Math.floor(Date.now() / 1000) + 86400 });
   }
 
   async scan() {
     if (this.scanning || this.stopped || this.options.signal.aborted) return;
     this.scanning = true;
     try {
+      if (!this.registered) {
+        await this.rpc({ action: "matrix.start", runtime: "openclaw" });
+        this.registered = true;
+      }
       const snapshot = await this.rpc<Snapshot>({ action: "discover" });
       const rooms = await this.options.client.getJoinedRooms();
       // Recover existing execution/delivery before starting newly assigned work.
@@ -176,7 +173,7 @@ export class AgentTeamsTaskRecovery {
           if (this.stopped || this.options.signal.aborted) break;
           const task = claimed.task;
           const identity = { task_id: task.task_id, team_id: entry.team_id,
-            generation: task.execution.generation, instance_id: task.execution.instance_id };
+            generation: task.execution.generation, instance_id: task.execution.instance_id, process_id: task.execution.process_id };
           if (!rooms.includes(task.room_id)) continue;
           if (task.execution.checkpoint?.delivery === "pending") {
             await this.deliver(identity, task.room_id, claimed.saved_result, task.execution.checkpoint);
@@ -187,12 +184,12 @@ export class AgentTeamsTaskRecovery {
           if (this.admitted.has(admitted)) continue;
           const route = this.options.core.channel.routing.resolveAgentRoute({ cfg: this.options.cfg,
             channel: "matrix", accountId: this.options.accountId, peer: { kind: "channel", id: task.room_id } });
-          const sessionKey = await this.selectSession(entry.team_id, task, claimed.checkpoint_digest, route.agentId);
+          const selection = await this.selectSession(entry.team_id, task, route.agentId);
           if (this.stopped || this.options.signal.aborted) break;
           const controller = new AbortController();
           this.admitted.add(admitted);
           const done = Promise.resolve().then(() => this.runNative(identity, task, claimed.resume_text,
-            sessionKey, route.agentId, controller.signal)).catch(() => {
+            selection, route.agentId, controller.signal)).catch(() => {
               this.options.warn("Task native turn ended; retain authoritative checkpoint for recovery");
             }).finally(() => this.active.delete(key));
           this.active.set(key, { controller, done });
@@ -202,6 +199,7 @@ export class AgentTeamsTaskRecovery {
           }
         }
       }
+      await this.rpc({ action: "recovery.scanned" });
       this.admitReady();
     } finally { this.scanning = false; }
   }
@@ -214,8 +212,9 @@ export class AgentTeamsTaskRecovery {
     await this.rpc({ action: "delivered", identity, event_id: event });
   }
 
-  private async runNative(identity: Identity, task: Task, text: string, sessionKey: string,
+  private async runNative(identity: Identity, task: Task, text: string, selection: SessionSelection,
                           agentId: string, runSignal: AbortSignal) {
+    const { sessionKey } = selection;
     const { core, cfg, client, userId, accountId, signal } = this.options;
     const abort = AbortSignal.any([signal, runSignal]);
     const controller = this.active.get(this.key(identity.team_id, identity.task_id))!.controller;
@@ -269,7 +268,7 @@ export class AgentTeamsTaskRecovery {
         action: "prepare_reply", identity, text: finalText });
       const cp = reply.saved.execution.checkpoint!;
       if (cp.delivery !== "delivered") await this.deliver(identity, task.room_id, reply.text, cp);
-      await this.remember(identity, sessionKey, agentId);
+      if (reply.saved.task?.status === "in_progress") await this.remember(identity, selection, agentId);
     } catch (error) {
       // The native run promise settles after its tools; do not clear unknown effects.
       if (nativeStarted) await this.rpc({ action: "interrupted", identity }).catch(() => {});

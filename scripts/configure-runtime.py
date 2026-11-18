@@ -21,7 +21,13 @@ def validate_native(path):
     except (ValueError, AttributeError):
         valid = False
     if result.returncode != 0 or not valid:
-        raise ValueError('Native OpenClaw configuration validation failed; refusing publication')
+        if result.returncode < 0:
+            outcome = f'signal {-result.returncode}'
+        elif result.returncode > 0:
+            outcome = f'exit status {result.returncode}'
+        else:
+            outcome = 'no valid report'
+        raise ValueError(f'Native OpenClaw configuration validation failed ({outcome}); refusing publication')
 
 
 def configure(workspace: Path, record_path: Path | None = None) -> Path:

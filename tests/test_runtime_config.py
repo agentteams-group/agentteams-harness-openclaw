@@ -17,6 +17,17 @@ config = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(config)
 
 
+class NativeValidationTest(unittest.TestCase):
+    def test_process_exit_and_unreadable_report_are_diagnosed_without_output(self):
+        for returncode, expected in ((-9, "signal 9"), (1, "exit status 1"), (0, "no valid report")):
+            with self.subTest(returncode=returncode):
+                result = config.subprocess.CompletedProcess([], returncode, 'private config output', 'private diagnostics')
+                with patch.object(config.subprocess, 'run', return_value=result):
+                    with self.assertRaisesRegex(ValueError, expected) as error:
+                        config.validate_native(Path('/tmp/native.json'))
+                self.assertNotIn('private', str(error.exception))
+
+
 class RuntimeConfigTest(unittest.TestCase):
     def setUp(self):
         validator = patch.object(config, 'validate_native')

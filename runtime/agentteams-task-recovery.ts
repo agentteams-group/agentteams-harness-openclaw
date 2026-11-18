@@ -235,11 +235,14 @@ export class AgentTeamsTaskRecovery {
         + "mcporter call --stdio python3 --stdio-arg /opt/agentteams/plugins/teamharness/mcp/server.py taskflow --args '<JSON arguments>'\n"
         + "Use this taskflow tool for ack_task, checkpoint_task and submit_task; preserve the current Task/team IDs. "
         + "Its scoped credentials and process identity are inherited. Do not replace it with raw Task metadata writes.\n";
-      const messageId = this.sources.get(this.key(task.room_id, task.task_id))
+      const sourceEventId = this.sources.get(this.key(task.room_id, task.task_id));
+      // The old Matrix event may reappear after restart. Its native dedup key
+      // belongs to the first turn, even when we reuse that turn's session.
+      const messageId = (identity.generation === 1 ? sourceEventId : undefined)
         ?? `recovery:${identity.team_id}/${task.task_id}:${identity.generation}`;
       registerTaskTraceContext(sessionKey, { "agentteams.task.id": identity.task_id,
         "agentteams.team.id": identity.team_id, "agentteams.room.id": task.room_id,
-        "agentteams.execution.generation": identity.generation, "agentteams.event.id": messageId });
+        "agentteams.execution.generation": identity.generation, "agentteams.event.id": sourceEventId ?? messageId });
       const access = await resolveMatrixMonitorAccessState({ accountId, senderId: userId, isRoom: true,
         conversationId: task.room_id, allowFrom: [userId], storeAllowFrom: [], groupPolicy: "allowlist",
         groupAllowFrom: [userId], roomUsers: [userId], dmPolicy: "disabled" });

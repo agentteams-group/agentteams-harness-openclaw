@@ -159,6 +159,7 @@ it("reuses only real fresh SQLite sessions matching the authoritative checkpoint
 });
 
 it("keeps source identity in the native context and delivers the authoritative report after native closure", async () => {
+  task.execution.generation = 1;
   const run = vi.fn(async (params) => {
     const input = await params.adapter.ingest(params.raw);
     const turn = await params.adapter.resolveTurn(input, { kind: "message", canStartAgentTurn: true }, {});
@@ -225,5 +226,23 @@ it("retains a completed native admission across Matrix monitor reload in the sam
   create(run);
   await recovery.scan();
   await recovery.stop();
+  expect(run).toHaveBeenCalledOnce();
+});
+
+it("does not use a replayed assignment event as the native turn identity on recovery", async () => {
+  let ids: string[] = [];
+  const run = vi.fn(async (params) => {
+    const input = await params.adapter.ingest(params.raw);
+    const turn = await params.adapter.resolveTurn(input, {}, {});
+    ids = [input.id, turn.ctxPayload.MessageSid];
+    await turn.replyOptions.onAgentRunStart("native-recovery");
+    Object.assign(task.execution.checkpoint, { result: { key: "saved", sha256: "fixture", size: 26 },
+      delivery: "pending", reply_txn: "recovery-txn" });
+    await turn.delivery.deliver({ text: "continued" }, { kind: "final" });
+  });
+  create(run);
+  await recovery.acceptSource("T", task.room_id, "$assignment-source");
+  await expect.poll(() => task.execution.checkpoint.delivery, { timeout: 4000 }).toBe("delivered");
+  expect(ids).toEqual(["recovery:team/T:2", "recovery:team/T:2"]);
   expect(run).toHaveBeenCalledOnce();
 });

@@ -445,4 +445,4 @@ fi
 rm -f "${HOME}/.openclaw/logs/config-health.json" 2>/dev/null || true
 
 python3 /opt/agentteams/scripts/lib/agentteams_receipts.py serve --runtime openclaw --workspace "${WORKSPACE}" &
-exec openclaw gateway run --verbose --force
+exec python3 /opt/agentteams/scripts/start-openclaw-gateway.py

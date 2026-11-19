@@ -9,6 +9,13 @@ for helper in install-worker-skill.sh safe-extract-worker-skill.py push-worker-s
 done
 mc.bin --version
 mc --version
+test -r /opt/agentteams/scripts/lib/task_recovery_rpc.py
+test -r /opt/agentteams/plugins/teamharness/mcp/server.py
+if ! grep -rFl --include='*.js' --include='*.mjs' --include='*.cjs' \
+    'Task recovery deferred; authority unavailable' /opt/openclaw/dist/extensions/matrix >/dev/null; then
+    echo 'Patched Matrix monitor missing from the compiled OpenClaw extension' >&2
+    exit 1
+fi
 bash -n /opt/agentteams/scripts/worker-entrypoint.sh
 source /opt/agentteams/scripts/lib/agentteams-env.sh
 source /opt/agentteams/scripts/lib/merge-openclaw-config.sh

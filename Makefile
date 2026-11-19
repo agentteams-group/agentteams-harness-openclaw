@@ -3,10 +3,12 @@ include versions.env
 IMAGE ?= ghcr.io/agentteams-group/agentteams-harness-openclaw
 VERSION ?= dev
 PLATFORMS ?= linux/amd64,linux/arm64
+AT_SOURCE ?= .deps/AgentTeams
 SHARED_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):shared/lib
-BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT)
+TEAMHARNESS_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):plugins/teamharness
+BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
 
-.PHONY: build push test smoke
+.PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke observability-smoke
 build:
 	docker build $(BUILD_ARGS) $(DOCKER_BUILD_ARGS) -t $(IMAGE):$(VERSION) .
 
@@ -15,10 +17,21 @@ push:
 
 test:
 	bash -n scripts/worker-entrypoint.sh
-	python3 -m unittest discover -s tests -p 'test_*.py'
+	AT_SOURCE=$(abspath $(AT_SOURCE)) AGENTTEAMS_LOG_LIB_DIR=$(abspath $(AT_SOURCE))/shared/lib python3 -m unittest discover -s tests -p 'test_*.py'
 
 smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests/image-smoke.sh:/tmp/image-smoke.sh:ro" $(IMAGE):$(VERSION) /tmp/image-smoke.sh
+	docker run --rm --network none --entrypoint python3 -v "$(CURDIR)/tests/native_runtime_config_smoke.py:/tmp/native_runtime_config_smoke.py:ro" $(IMAGE):$(VERSION) /tmp/native_runtime_config_smoke.py
 
 direct-control-smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts; cp /dm/task-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts'
+
+matrix-restart-smoke:
+	docker run --rm --network none --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/matrix-restart.test.ts extensions/matrix/src/matrix/monitor/agentteams-matrix-restart.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-matrix-restart.test.ts'
+
+task-recovery-smoke:
+	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/task-recovery.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-recovery.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-task-recovery.test.ts'
+	docker run --rm --network none --entrypoint python3 -v "$(CURDIR)/tests/native_task_tools_smoke.py:/tmp/native_task_tools_smoke.py:ro" $(IMAGE):$(VERSION) /tmp/native_task_tools_smoke.py
+
+observability-smoke:
+	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/observability.test.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts'

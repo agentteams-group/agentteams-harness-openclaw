@@ -36,7 +36,8 @@ make smoke
 For local shared-library changes:
 
 ```sh
-make build SHARED_CONTEXT=../AgentTeams/shared/lib
+make build SHARED_CONTEXT=../AgentTeams/shared/lib \
+  TEAMHARNESS_CONTEXT=../AgentTeams/plugins/teamharness
 ```
 
 Use `DOCKER_BUILD_ARGS` to override image inputs, for example
@@ -44,6 +45,21 @@ Use `DOCKER_BUILD_ARGS` to override image inputs, for example
 CI builds the image and checks the installed OpenClaw pin, CLI commands,
 bootstrap dependencies and configuration migration. Real Matrix/LLM delivery
 continues to be covered by AgentTeams integration tests.
+
+Task recovery requires the matching Controller recovery API and the shared
+source pinned in `versions.env`. The native Matrix monitor scans only this
+Worker's recoverable Tasks, claims its process execution before inference and
+uses the public SDK session store to select a checkpoint-consistent session or
+create a fresh one. Saved replies use the shared durable transaction and do
+not enter inference. Ownership changes abort the native run and wait for its
+tools before monitor shutdown. The bundled TeamHarness MCP server is called
+through the existing native terminal/mcporter path, reading the same Worker
+`runtime/runtime.yaml`; no independent Task database or session migration is
+introduced.
+
+This is candidate code. SDK/HTTP-boundary tests do not establish real
+Matrix/model/Task restart or Harness switching. Live snapshots, cursor handoff,
+old-Harness return, all fault scenarios and full-stack acceptance remain open.
 
 Version tags (`v*`) publish `linux/amd64` and `linux/arm64` images to
 `ghcr.io/agentteams-group/agentteams-harness-openclaw` after the image checks pass.

@@ -1,0 +1,18 @@
+--- a/extensions/matrix/src/matrix/monitor/task-runner.ts
++++ b/extensions/matrix/src/matrix/monitor/task-runner.ts
+@@ -1,4 +1,5 @@
+ import { AsyncLocalStorage } from "node:async_hooks";
++import { runWithGatewayDetachedWorkAdmission } from "../../../../../src/process/gateway-work-admission.js";
+ import type { RuntimeLogger } from "openclaw/plugin-sdk/plugin-runtime";
+ 
+ const monitorTaskSignal = new AsyncLocalStorage<AbortSignal>();
+@@ -21,7 +22,8 @@
+     }
+     // Retained descendants keep the runner's shutdown signal after their task settles.
+     const trackedTask: Promise<void> = monitorTaskSignal
+-      .run(shutdownController.signal, () => Promise.resolve().then(task))
++      .run(shutdownController.signal, () =>
++        runWithGatewayDetachedWorkAdmission(task, `matrix:${label}`, shutdownController.signal))
+       .catch((error: unknown) => {
+         const message = String(error);
+         params.logVerboseMessage(`matrix: ${label} failed (${message})`);

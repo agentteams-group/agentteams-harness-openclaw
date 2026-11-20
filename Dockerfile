@@ -39,6 +39,9 @@ COPY runtime/agentteams-trace-context.ts /opt/openclaw/extensions/diagnostics-ot
 COPY patches/observability.patch /tmp/agentteams-observability.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-observability.patch
 
+COPY patches/work-admission.patch /tmp/agentteams-work-admission.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-work-admission.patch
+
 # The gateway loads compiled extensions from dist. Rebuild them after patching.
 RUN cd /opt/openclaw && git show HEAD:tsdown.config.ts > tsdown.config.ts \
     && node --import ./scripts/tsx.mjs scripts/build-all.mts qaRuntime \

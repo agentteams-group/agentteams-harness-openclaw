@@ -42,6 +42,11 @@ it("exports scoped Task metadata and ingestion authentication without raw conten
     await expect.poll(() => receiver.capturedSpans.length, { timeout: 10000 }).toBeGreaterThan(0);
     const span = receiver.capturedSpans.find((s) => s.attributes["agentteams.task.id"] === "task-fixture");
     expect(span?.attributes["langfuse.user.id"]).toBe("fixture-worker");
+    const turn = receiver.capturedSpans.find((s) => s.attributes["langfuse.trace.tags"]);
+    expect(turn).toBeDefined();
+    expect(JSON.parse(String(turn?.attributes["langfuse.trace.tags"]))).toEqual(
+      expect.arrayContaining(["agentteams", "worker-turn", "openclaw", "team:fixture-team", "task:task-fixture"]));
+    expect(turn?.attributes["langfuse.trace.name"]).toBe("fixture-worker / turn");
     expect(span?.attributes["langfuse.session.id"]).toBe("native-fixture");
     expect(span?.attributes["langfuse.trace.metadata.agentteams.execution.generation"]).toBe(2);
     expect(receiver.capturedRequests[0].headerValues?.authorization).toBe("Bearer fixture-ingest");

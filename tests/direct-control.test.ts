@@ -55,14 +55,3 @@ it.each(['stop', 'steer'] as const)('confirms %s after the native exec exits and
     expect(inputs).toHaveLength(1);
   }
 }, 30000);
-
-
-it('does not dispatch legacy execution status notices as new instructions', async () => {
-  installMatrixMonitorTestRuntime();
-  const dispatch = vi.fn(async () => ({ queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } }));
-  const { handler } = createMatrixHandlerTestHarness({ dispatchInboundMessage: dispatch });
-  const event = createMatrixTextMessageEvent({ eventId: '$legacy-status', body: '本轮已结束' });
-  event.content = { ...event.content, msgtype: 'm.notice', 'com.agentteams.execution': {run_id: '$original', status: 'completed'} } as never;
-  await handler('!room:example.org', event);
-  expect(dispatch).not.toHaveBeenCalled();
-});

@@ -9,14 +9,3 @@
        body: ({ running: "正在执行", stopping: "正在停止", stopped: "已停止", completed: "本轮已结束", failed: "执行失败" } as Record<string, string>)[status],
        "com.agentteams.execution": {
          run_id: id, status, capabilities: ["stop", "steer"],
-@@ -148,7 +148,9 @@
-     let directRun: ReturnType<typeof directRuns.get>;
-     let directFailed = false;
-     try {
--      if (event.content?.["org.agentteams.progress_only"] === true) return;
-+      const executionNotice = event.content?.["com.agentteams.execution"];
-+      if (event.content?.["org.agentteams.progress_only"] === true ||
-+          (event.content?.msgtype === "m.notice" && executionNotice && typeof executionNotice === "object")) return;
-       const taskRecovery = getAgentTeamsTaskRecovery(accountId);
-       if (taskRecovery) await taskRecovery.ready;
-       if (event.content && "org.agentteams.coordination" in event.content) {

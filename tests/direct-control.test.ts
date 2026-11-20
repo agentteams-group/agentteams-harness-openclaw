@@ -44,6 +44,9 @@ it.each(['stop', 'steer'] as const)('confirms %s after the native exec exits and
   expect(existsSync(marker)).toBe(false);
   const statuses = sent.mock.calls.map(call => (call[1] as Record<string, any>)['com.agentteams.execution']?.status).filter(Boolean);
   expect(statuses.slice(0, 3)).toEqual(['running', 'stopping', 'stopped']);
+  const statusEvents = sent.mock.calls.map(call => call[1] as Record<string, any>)
+    .filter(content => content['com.agentteams.execution']);
+  expect(statusEvents.every(content => content['org.agentteams.progress_only'] === true)).toBe(true);
   if (action === 'steer') {
     expect(inputs).toHaveLength(2);
     expect(inputs[1]).toContain('原任务：分析订单');

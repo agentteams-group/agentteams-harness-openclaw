@@ -1,0 +1,11 @@
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -127,7 +127,7 @@
+   };
+   const executionStatus = async (room: string, id: string, status: string, messageId?: string) => {
+     try { await client.sendMessage(room, {
+-      msgtype: "m.notice",
++      msgtype: "m.notice", "org.agentteams.progress_only": true,
+       body: ({ running: "正在执行", stopping: "正在停止", stopped: "已停止", completed: "本轮已结束", failed: "执行失败" } as Record<string, string>)[status],
+       "com.agentteams.execution": {
+         run_id: id, status, capabilities: ["stop", "steer"],

@@ -41,6 +41,8 @@ RUN git -C /opt/openclaw apply /tmp/agentteams-observability.patch
 
 COPY patches/work-admission.patch /tmp/agentteams-work-admission.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-work-admission.patch
+COPY patches/progress-events.patch /tmp/agentteams-progress-events.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-progress-events.patch
 
 # The gateway loads compiled extensions from dist. Rebuild them after patching.
 RUN cd /opt/openclaw && git show HEAD:tsdown.config.ts > tsdown.config.ts \

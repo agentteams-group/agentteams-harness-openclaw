@@ -10,7 +10,7 @@ export function registerTaskTraceContext(sessionKey: string, fields: Fields) {
   while (contexts.size > 256) contexts.delete(contexts.keys().next().value!);
 }
 
-export function agentTeamsTraceAttrs(event: { sessionKey?: string; sessionId?: string; runId?: string }): Fields {
+export function agentTeamsTraceAttrs(event: { type?: string; sessionKey?: string; sessionId?: string; runId?: string }): Fields {
   const worker = process.env.AGENTTEAMS_WORKER_NAME;
   if (!worker || process.env.AGENTTEAMS_OTEL_ENABLED !== "true") return {};
   const task = contexts.get(event.sessionKey ?? "") ?? contexts.get(event.runId ?? "") ?? {};
@@ -20,6 +20,15 @@ export function agentTeamsTraceAttrs(event: { sessionKey?: string; sessionId?: s
   if (event.sessionId) fields["agentteams.session.id"] = event.sessionId;
   const attributes: Fields = { ...fields, "langfuse.user.id": worker };
   if (event.sessionId) attributes["langfuse.session.id"] = event.sessionId;
+  if (event.type === "message.processed" || event.type === "run.completed") {
+    const tags = ["agentteams", "worker-turn", "openclaw"];
+    for (const label of ["team", "project", "task"]) {
+      const id = fields[`agentteams.${label}.id`];
+      if (typeof id === "string" && id) tags.push(`${label}:${id}`);
+    }
+    attributes["langfuse.trace.tags"] = JSON.stringify(tags);
+    attributes["langfuse.trace.name"] = `${worker} / turn`;
+  }
   for (const [key, value] of Object.entries(fields)) {
     attributes[`langfuse.trace.metadata.${key}`] = value;
     attributes[`langfuse.observation.metadata.${key}`] = value;

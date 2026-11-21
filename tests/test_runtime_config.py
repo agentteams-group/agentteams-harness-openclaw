@@ -81,6 +81,8 @@ class RuntimeConfigTest(unittest.TestCase):
             self.assertFalse((root / '.openclaw').exists())
             self.assertFalse((root / 'openclaw.json').exists())
             self.assertEqual(native['agents']['defaults']['workspace'], str(root))
+            self.assertIn('/opt/agentteams/plugins/teamharness/adapters/openclaw', native['plugins']['load']['paths'])
+            self.assertTrue(native['plugins']['entries']['agentteams-teamharness']['enabled'])
             self.assertEqual(native['agents']['defaults']['model']['primary'], 'agentteams-gateway/worker-model')
             self.assertEqual(native['gateway']['auth']['token'], 'new-model-key')
             matrix = native['channels']['matrix']

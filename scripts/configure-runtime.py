@@ -102,6 +102,10 @@ def configure(workspace: Path, record_path: Path | None = None) -> Path:
         defaults.setdefault('subagents', {})['model'] = provider + '/' + model_id
     native.setdefault('plugins', {}).setdefault('load', {})['paths'] = ['/opt/openclaw/extensions/matrix']
     native['plugins'].setdefault('entries', {})['matrix'] = {'enabled': True}
+    native['plugins']['load']['paths'].append('/opt/agentteams/plugins/teamharness/adapters/openclaw')
+    native['plugins']['entries']['agentteams-teamharness'] = {'enabled': True}
+    if record.get('team', {}).get('name'):
+        native['plugins']['entries']['agentteams-teamharness']['config'] = {'team': record['team']['name']}
     tracing = record.get('desired', {}).get('observability')
     if tracing is not None:
         enabled = tracing['enabled'] is True

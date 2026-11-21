@@ -1,0 +1,87 @@
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -1,4 +1,5 @@
+ import { spawn } from "node:child_process";
++import { attachTaskProtocol, prepareTaskProtocol } from "../../../../../src/agents/agentteams-task-protocol.js";
+ import { getAgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
+ import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
+ import {
+@@ -140,6 +141,7 @@
+ 
+   return async (roomId: string, event: MatrixRawEvent) => {
+     let coordinationSession = "";
++    let coordinationMeta: Record<string, any> | undefined;
+     const eventId = typeof event.event_id === "string" ? event.event_id.trim() : "";
+     let inboundReplayClaim:
+       | import("openclaw/plugin-sdk/persistent-dedupe").ChannelReplayClaimHandle
+@@ -162,7 +164,7 @@
+           child.on("close", (code) => { try { resolve(code === 0 ? JSON.parse(output) : null); } catch { resolve(null); } });
+           child.stdin.on("error", () => {});
+           child.stdin.end(JSON.stringify({ content: event.content, room: roomId,
+-            sender: event.sender, own: awaitOwnUserId }));
++            sender: event.sender, own: awaitOwnUserId, event_id: eventId }));
+         });
+         if (!packet) return;
+         const assigned = packet.meta?.teamharness_coordination;
+@@ -172,6 +174,7 @@
+         }
+         event.content.body = packet.text;
+         coordinationSession = packet.session_id;
++        coordinationMeta = packet.meta;
+         Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: true });
+       }
+       const eventType = event.type;
+@@ -383,6 +386,10 @@
+         replyTarget,
+         sharedDmContextNotice,
+       } = inboundContext;
++      attachTaskProtocol(ctxPayload, await prepareTaskProtocol({
++        ...(coordinationMeta ?? { room_id: roomId, sender_id: senderId }), event_id: eventId,
++        registered_team: cfg.plugins?.entries?.["agentteams-teamharness"]?.config?.team,
++      }));
+       const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, _route.agentId);
+       const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+         cfg,
+--- a/src/agents/embedded-agent-runner/run/attempt-tool-prepare.ts
++++ b/src/agents/embedded-agent-runner/run/attempt-tool-prepare.ts
+@@ -1,3 +1,4 @@
++import { taskProtocolCwd } from "../../agentteams-task-protocol.js";
+ import type { SessionPermissionMode } from "../../../../packages/gateway-protocol/src/schema/sessions-row.js";
+ import { getReplyOperationSessionReader } from "../../../auto-reply/reply/reply-run-registry.state.js";
+ import { messageToolOwnsVisibleReply } from "../../../auto-reply/source-reply-delivery-mode.js";
+@@ -205,7 +206,7 @@
+     modelContextWindowTokens: attempt.contextTokenBudget ?? attempt.model.contextWindow,
+     modelHasVision: attempt.model.input?.includes("image") ?? false,
+     workspaceDir: params.setup.effectiveWorkspace,
+-    cwd: params.setup.effectiveCwd,
++    cwd: taskProtocolCwd(attempt.toolBindings, params.setup.effectiveCwd),
+     spawnWorkspaceDir,
+     skillsSnapshot: params.skillsSnapshot,
+     runtimeToolAllowlist: effectiveToolsAllow,
+@@ -418,7 +419,7 @@
+       toolHookContext: {
+         agentId: params.setup.sessionAgentId,
+         config: attempt.config,
+-        cwd: params.setup.effectiveCwd,
++        cwd: taskProtocolCwd(attempt.toolBindings, params.setup.effectiveCwd),
+         sessionKey: params.setup.sandboxSessionKey,
+         sessionId: attempt.sessionId,
+         runId: attempt.runId,
+--- a/src/agents/embedded-agent-runner/run/attempt-prompt-phase.ts
++++ b/src/agents/embedded-agent-runner/run/attempt-prompt-phase.ts
+@@ -1,3 +1,4 @@
++import { installTaskModelBoundary, type TaskProtocolFrame } from "../../agentteams-task-protocol.js";
+ import { formatErrorMessage } from "../../../infra/errors.js";
+ import {
+   mergeAgentRunAttemptTerminal,
+@@ -405,6 +406,10 @@
+     publishDispatchState(state);
+ 
+     if (!state.skipPromptSubmission) {
++      installTaskModelBoundary(attempt.toolBindings?.agentteamsTask as TaskProtocolFrame | undefined, {
++        session: activeSession, manager: sessionManager, persist: withTranscriptWrite,
++        runId: attempt.runId, sessionKey: attempt.sessionKey,
++      });
+       await submitEmbeddedAttemptPrompt({
+         ...(promptBuildAppendContext ? { appendContext: promptBuildAppendContext } : {}),
+         attempt,

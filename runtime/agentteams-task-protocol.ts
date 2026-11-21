@@ -124,6 +124,7 @@ export function taskNative<T = any>(request: Record<string, unknown>): Promise<T
       stdio: ["pipe", "pipe", "ignore"], timeout: 120000,
     });
     let output = "";
+    child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { output += chunk; if (output.length > 2 * 1024 * 1024) child.kill(); });
     child.once("error", () => reject(new Error("Native Task bridge unavailable")));
     child.once("close", (code) => {

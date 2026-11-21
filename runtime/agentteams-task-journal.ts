@@ -13,6 +13,7 @@ export const nativeRecoveryRPC: RPC = (request) => new Promise((resolve, reject)
     stdio: ["pipe", "pipe", "ignore"], timeout: 120000,
   });
   let output = "";
+  child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => { output += chunk; if (output.length > 2 * 1024 * 1024) child.kill(); });
   child.once("error", () => reject(new Error("Native recovery bridge unavailable")));
   child.once("close", (code) => {

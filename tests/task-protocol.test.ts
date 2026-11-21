@@ -5,7 +5,7 @@ import { guardSessionManager } from "/opt/openclaw/src/agents/session-tool-resul
 import { withSessionManagerWrite } from "/opt/openclaw/src/agents/sessions/session-manager-write-admission.js";
 import { resolveOpenClawPluginToolInputs } from "/opt/openclaw/src/agents/openclaw-tools.plugin-context.js";
 import { buildAgentHookContext } from "/opt/openclaw/src/agents/harness/hook-context.js";
-import { attachTaskProtocol, installTaskModelBoundary, taskProtocolCwd } from "/opt/openclaw/src/agents/agentteams-task-protocol.js";
+import { attachTaskProtocol, installTaskModelBoundary, taskProtocolCwd, taskNative } from "/opt/openclaw/src/agents/agentteams-task-protocol.js";
 import { agentTeamsTraceAttrs, registerTaskTraceContext } from "/opt/openclaw/src/agents/agentteams-trace-context.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -138,4 +138,11 @@ it("records only model-visible bound input identities without exporting Human te
   context.systemPrompt = "Unrelated contract";
   await f.session.agent.streamFn({}, context, {});
   expect(agentTeamsTraceAttrs({ runId: "own-diag-run" })["agentteams.input.event_ids"]).toEqual(["$first", "$second"]);
+});
+
+
+it("retains multibyte native bridge data across stdout chunks", async () => {
+  const note = "汉字输入".repeat(25000);
+  const result = await taskNative({ operation: "ack_delivery_context", middle: { note }, acknowledgements: {} });
+  expect(result.note).toBe(note);
 });

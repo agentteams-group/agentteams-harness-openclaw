@@ -25,7 +25,7 @@ index a39add23..1a03e9ad 100644
 +      msgtype: "m.notice",
 +      body: ({ running: "正在执行", stopping: "正在停止", stopped: "已停止", completed: "本轮已结束", failed: "执行失败" } as Record<string, string>)[status],
 +      "com.agentteams.execution": {
-+        run_id: id, status, capabilities: ["stop", "steer"],
++        run_id: id, status, capabilities: ["stop", "steer"], steering_mode: "native",
 +        ...(messageId ? { message_id: messageId } : {}),
 +      },
 +    }); } catch (error) {
@@ -44,7 +44,7 @@ index a39add23..1a03e9ad 100644
      try {
        const eventType = event.type;
        if (eventType === EventType.RoomMessageEncrypted) {
-@@ -251,6 +279,35 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+@@ -251,6 +279,44 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
          return;
        }
  
@@ -62,13 +62,22 @@ index a39add23..1a03e9ad 100644
 +            await commitInboundEventIfClaimed();
 +            return;
 +          }
-+          active.stopped = true;
-+          await executionStatus(roomId, active.id, "stopping");
-+          active.controller.abort();
-+          await active.done;
 +          if (request.action === "steer") {
-+            directInputs = [...active.inputs, resolvedIngressResult.bodyText];
-+            resolvedIngressResult.bodyText = "Continue the original request using all supplementary information. Preserve conversation context and earlier results.\n\n" + directInputs.join("\n\n");
++            if (!resolvedIngressResult.bodyText.trim()) {
++              await commitInboundEventIfClaimed();
++              return;
++            }
++            // Native /steer owns queue admission, persistence and boundary fallback.
++            if (directRuns.get(roomId) === active && !active.controller.signal.aborted) {
++              resolvedIngressResult.bodyText = "/steer " + resolvedIngressResult.bodyText;
++              resolvedIngressResult.commandBodyText = resolvedIngressResult.bodyText;
++              resolvedIngressResult.isControlCommand = true;
++            }
++          } else if (directRuns.get(roomId) === active && !active.controller.signal.aborted) {
++            active.stopped = true;
++            await executionStatus(roomId, active.id, "stopping");
++            active.controller.abort();
++            await active.done;
 +          }
 +        }
 +        if (request.action === "stop") {

@@ -8,7 +8,7 @@ SHARED_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):sha
 TEAMHARNESS_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):plugins/teamharness
 BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
 
-.PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke observability-smoke
+.PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke task-protocol-smoke observability-smoke
 build:
 	docker build $(BUILD_ARGS) $(DOCKER_BUILD_ARGS) -t $(IMAGE):$(VERSION) .
 
@@ -35,3 +35,7 @@ task-recovery-smoke:
 
 observability-smoke:
 	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/observability.test.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/diagnostics-otel/src/agentteams-observability.test.ts'
+
+
+task-protocol-smoke:
+	docker run --rm --network none --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; for name in task-protocol task-checkpoint task-journal task-queue; do cp /dm/$$name.test.ts src/agents/agentteams-$$name.test.ts; done; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts src/agents/agentteams-task-protocol.test.ts src/agents/agentteams-task-checkpoint.test.ts src/agents/agentteams-task-journal.test.ts src/agents/agentteams-task-queue.test.ts'

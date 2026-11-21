@@ -42,6 +42,8 @@ RUN git -C /opt/openclaw apply /tmp/agentteams-observability.patch
 COPY patches/work-admission.patch /tmp/agentteams-work-admission.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-work-admission.patch
 
+COPY runtime/agentteams-task-journal.ts /opt/openclaw/src/agents/agentteams-task-journal.ts
+COPY runtime/agentteams-task-checkpoint.ts /opt/openclaw/src/agents/agentteams-task-checkpoint.ts
 COPY runtime/agentteams-task-protocol.ts /opt/openclaw/src/agents/agentteams-task-protocol.ts
 COPY runtime/agentteams-trace-context.ts /opt/openclaw/src/agents/agentteams-trace-context.ts
 COPY patches/task-protocol.patch /tmp/agentteams-task-protocol.patch

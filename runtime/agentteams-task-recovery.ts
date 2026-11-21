@@ -246,6 +246,7 @@ export class AgentTeamsTaskRecovery {
         teamharness_coordination: { id: task.task_notifications?.assigned?.event_id, kind: "task_assigned", task_id: task.task_id,
           main_task_id: task.main_task_id ?? "", project_id: task.project_id ?? "", delivery_id: task.notifyTxn },
       }) : undefined;
+      if (protocol) protocol.journal = { kind: "task", identity };
       if (protocol) Object.assign(protocol.traceFields!, {
         "agentteams.task.id": identity.task_id, "agentteams.team.id": identity.team_id,
         "agentteams.execution.generation": identity.generation,

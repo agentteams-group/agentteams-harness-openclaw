@@ -3,11 +3,14 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createAssistantMessageEventStream } from "../llm/utils/event-stream.js";
 import { buildUsageWithNoCost } from "./stream-message-shared.js";
+import { admitNativeTaskTools, prepareNativeMessage } from "./agentteams-task-journal.js";
+import { checkpointTaskDeliveries } from "./agentteams-task-checkpoint.js";
 import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
 export type TaskProtocolFrame = {
   context: Record<string, any>;
   prepared?: Record<string, any>;
+  deliveryRoom?: string;
   deliveryFacts?: string[];
   deliveryAcknowledgements?: Record<string, string>;
   inputCheckpointAvailable?: boolean;
@@ -17,6 +20,8 @@ export type TaskProtocolFrame = {
   systemContract?: string;
   traceFields?: Record<string, string | number | boolean | string[]>;
   roster?: Record<string, unknown>;
+  journal?: { kind: "task" | "message"; identity: Record<string, unknown> };
+  journalQueue?: Promise<void>;
 };
 
 export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, native: {
@@ -61,6 +66,7 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
       frame.pendingInputs = [];
       frame.context.inputRefreshPending = false;
     }
+    await checkpointTaskDeliveries(frame, context, native, taskNative);
     if (frame.finishedFact) {
       const stream = createAssistantMessageEventStream();
       stream.push({ type: "done", reason: "stop", message: { role: "assistant",
@@ -68,6 +74,7 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
         model: model.id, usage: buildUsageWithNoCost({}), stopReason: "stop", timestamp: Date.now() } });
       return stream;
     }
+    await admitNativeTaskTools(frame);
     if (native.runId && process.env.AGENTTEAMS_OTEL_ENABLED === "true") {
       const text = (message: any) => typeof message.content === "string" ? message.content
         : (message.content || []).map((part: any) => part.text || "").join("\n");
@@ -159,10 +166,9 @@ export async function prepareTaskProtocol(meta: Record<string, any>): Promise<Ta
     if (team) frame.traceFields!["agentteams.team.id"] = team;
   } else if (role === "manager") {
     frame.context.sources = await taskNative({ operation: "sources", meta });
-    const delivery = await taskNative({ operation: "delivery_context", middle: {}, room: meta.room_id });
-    frame.deliveryFacts = delivery.facts;
-    frame.deliveryAcknowledgements = delivery.acknowledgements;
+    frame.deliveryRoom = meta.room_id;
   }
+  if (!event && role !== "manager") frame.journal = await prepareNativeMessage(meta);
   if (role === "manager") frame.roster = await taskNative({ operation: "roster", role });
   else if (["leader", "team_leader"].includes(role)) frame.roster = await taskNative({
     operation: "roster", role, team: meta.registered_team,

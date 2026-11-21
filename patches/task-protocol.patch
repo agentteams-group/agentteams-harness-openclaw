@@ -31,12 +31,13 @@
          Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: true });
        }
        const eventType = event.type;
-@@ -383,6 +386,10 @@
+@@ -383,6 +386,11 @@
          replyTarget,
          sharedDmContextNotice,
        } = inboundContext;
 +      attachTaskProtocol(ctxPayload, await prepareTaskProtocol({
 +        ...(coordinationMeta ?? { room_id: roomId, sender_id: senderId }), event_id: eventId,
++        native_source: { sender: event.sender, content: event.content, type: event.type, origin_server_ts: event.origin_server_ts },
 +        registered_team: cfg.plugins?.entries?.["agentteams-teamharness"]?.config?.team,
 +      }));
        const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, _route.agentId);
@@ -44,12 +45,14 @@
          cfg,
 --- a/src/agents/embedded-agent-runner/run/attempt-tool-prepare.ts
 +++ b/src/agents/embedded-agent-runner/run/attempt-tool-prepare.ts
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,6 @@
++import { bindNativeTaskTools } from "../../agentteams-task-journal.js";
++import type { TaskProtocolFrame } from "../../agentteams-task-protocol.js";
 +import { taskProtocolCwd } from "../../agentteams-task-protocol.js";
  import type { SessionPermissionMode } from "../../../../packages/gateway-protocol/src/schema/sessions-row.js";
  import { getReplyOperationSessionReader } from "../../../auto-reply/reply/reply-run-registry.state.js";
  import { messageToolOwnsVisibleReply } from "../../../auto-reply/source-reply-delivery-mode.js";
-@@ -205,7 +206,7 @@
+@@ -205,7 +208,7 @@
      modelContextWindowTokens: attempt.contextTokenBudget ?? attempt.model.contextWindow,
      modelHasVision: attempt.model.input?.includes("image") ?? false,
      workspaceDir: params.setup.effectiveWorkspace,
@@ -58,7 +61,16 @@
      spawnWorkspaceDir,
      skillsSnapshot: params.skillsSnapshot,
      runtimeToolAllowlist: effectiveToolsAllow,
-@@ -418,7 +419,7 @@
+@@ -392,7 +395,7 @@
+         `restart-safe recovery tool policy retained ${toolsRaw.length}/${constructedToolsRaw.length} concrete tools`,
+       );
+     }
+-    return toolsRaw;
++    return bindNativeTaskTools(toolsRaw, attempt.toolBindings?.agentteamsTask as TaskProtocolFrame | undefined);
+   };
+   let toolAbortController = new AbortController();
+   let toolAbortSignal = AbortSignal.any([
+@@ -418,7 +421,7 @@
        toolHookContext: {
          agentId: params.setup.sessionAgentId,
          config: attempt.config,
@@ -85,3 +97,30 @@
        await submitEmbeddedAttemptPrompt({
          ...(promptBuildAppendContext ? { appendContext: promptBuildAppendContext } : {}),
          attempt,
+--- a/src/agents/embedded-agent-runner/run/attempt-prompt-build.ts
++++ b/src/agents/embedded-agent-runner/run/attempt-prompt-build.ts
+@@ -1,3 +1,5 @@
++import { prepareTaskDeliveries } from "../../agentteams-task-checkpoint.js";
++import { taskNative, type TaskProtocolFrame } from "../../agentteams-task-protocol.js";
+ import { ensureSystemPromptCacheBoundary } from "@openclaw/ai/internal/shared";
+ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+ import { filterHeartbeatTranscriptArtifacts } from "../../../auto-reply/heartbeat-filter.js";
+@@ -94,7 +96,7 @@
+     | "fastMode"
+   >;
+   activeSession: Pick<AgentSession, "messages">;
+-  sessionManager: Pick<SessionManager, "getLeafId">;
++  sessionManager: Pick<SessionManager, "getLeafId" | "getEntries">;
+   hookRunner: HookRunner;
+   hookAgentId: string;
+   diagnosticTrace: DiagnosticTraceContext;
+@@ -162,6 +164,9 @@
+   const promptBuildMessages =
+     pruneProcessedHistoryImages(input.activeSession.messages) ?? input.activeSession.messages;
+   const promptEvent = { prompt: effectivePrompt, messages: promptBuildMessages };
++  if (!preserveExactPrompt) {
++    await prepareTaskDeliveries(attempt.toolBindings?.agentteamsTask as TaskProtocolFrame | undefined, input.sessionManager, taskNative);
++  }
+   const hookResult = preserveExactPrompt
+     ? undefined
+     : await resolvePromptBuildHookResult({

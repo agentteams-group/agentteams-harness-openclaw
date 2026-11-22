@@ -35,7 +35,8 @@ it("exports scoped Task metadata and ingestion authentication without raw conten
     emitTrustedDiagnosticEventWithPrivateData({ type: "run.started", ...run }, {});
     registerTaskTraceContext(run.runId, { "agentteams.task.id": "task-fixture",
       "agentteams.execution.generation": 2, "agentteams.room.id": "!fixture:test",
-      "agentteams.event.id": "$first", "agentteams.input.event_ids": ["$first", "$second"],
+      "agentteams.event.id": "$gtGOfNv1dDia6LmPONBu79PbGe4kn3AlnKJpKn9t-p4",
+      "agentteams.input.event_ids": ["$first", "$second"],
       "agentteams.coordination.id": "c".repeat(32), "agentteams.coordination.kind": "task_submitted" }, true);
     emitTrustedDiagnosticEventWithPrivateData({ type: "model.call.started", ...run, callId: "model-call" }, {});
     emitTrustedDiagnosticEventWithPrivateData({ type: "model.call.completed", ...run, callId: "model-call",
@@ -50,6 +51,11 @@ it("exports scoped Task metadata and ingestion authentication without raw conten
     expect(span?.attributes["langfuse.session.id"]).toBe("native-fixture");
     expect(span?.attributes["langfuse.trace.metadata.agentteams.execution.generation"]).toBe(2);
     const model = receiver.capturedSpans.find((s) => s.attributes["langfuse.observation.type"] === "generation");
+    for (const prefix of ["", "langfuse.trace.metadata.", "langfuse.observation.metadata."]) {
+      expect(model?.attributes[`${prefix}agentteams.event.id`]).toBe(
+        "$gtGOfNv1dDia6LmPONBu79PbGe4kn3AlnKJpKn9t-p4",
+      );
+    }
     expect(model?.attributes["agentteams.input.event_ids"]).toEqual(["$first", "$second"]);
     expect(model?.attributes["agentteams.turn.id"]).toBe(run.runId);
     expect(model?.attributes["agentteams.runtime.session_id"]).toBe(sessionKey);

@@ -58,8 +58,8 @@ jobs:
             -e PYTHONPATH=/opt/agentteams/scripts/lib/telemetry:/opt/agentteams/scripts/lib \
             -e WORKER_REF -e CORE_REF -e SDK_BASE -e CI_REVISION \
             -v "$PWD:/frozen:ro" -v "$PWD/sdk-export:/export" \
-            -v "$PWD/.deps/core/shared/lib:/opt/agentteams/scripts/lib:ro" \
-            -v "$PWD/.deps/core/plugins/teamharness:/opt/agentteams/plugins/teamharness:ro" \
+            -v "$PWD/.deps/core/shared/lib:/core-shared:ro" \
+            -v "$PWD/.deps/core/plugins/teamharness:/core-teamharness:ro" \
             --entrypoint /bin/bash "$SDK_BASE" /frozen/.github/scripts/build-sdk-artifact.sh \
             2>&1 | tee sdk-export/build-native-sdk.log
       - name: Record exit and capacity evidence

@@ -34,11 +34,7 @@ for (const root of roots) {
 }
 fs.writeFileSync('/export/output-roots.json', JSON.stringify(roots, null, 2) + '\n');
 fs.writeFileSync('/export/output-roots.txt', roots.join('\n') + '\n');
-const bundles = fs.readdirSync('dist', {recursive:true}).filter(p => typeof p === 'string' && p.endsWith('.js'));
-for (const marker of ['Native SDK did not retain the verified Human input', 'Canonical Task outcome requires authoritative verification before model admission']) {
-  assert(bundles.some(p => fs.readFileSync('dist/' + p, 'utf8').includes(marker)), marker);
-}
-fs.writeFileSync('/export/native-verdict.json', JSON.stringify({nativeSDKChecksPassed:false,compiledTaskHooksPresent:true,
+fs.writeFileSync('/export/native-verdict.json', JSON.stringify({nativeSDKChecksPassed:false,compiledTaskHooksPresent:false,
   platform:process.platform,architecture:process.arch,node:process.version,workerSource:process.env.WORKER_REF,
   coreSource:process.env.CORE_REF,sdkBase:process.env.SDK_BASE,ciRevision:process.env.CI_REVISION,
   realTaskCertification:false}, null, 2) + '\n');
@@ -66,3 +62,26 @@ result = json.loads(p.read_text())
 result['nativeSDKChecksPassed'] = True
 p.write_text(json.dumps(result, indent=2) + '\n')
 PYTHON
+
+# Package-based SDK versions emit the live agent runtime outside root dist/.
+node --input-type=module <<'JS'
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const roots = JSON.parse(fs.readFileSync('/export/output-roots.json', 'utf8'));
+const markers = ['Native SDK did not retain the verified Human input', 'Canonical Task outcome requires authoritative verification before model admission'];
+const matches = Object.fromEntries(markers.map(marker => [marker, []]));
+for (const root of roots) {
+  for (const name of fs.readdirSync(root, {recursive:true})) {
+    if (typeof name !== 'string' || !/\.(?:js|mjs|cjs)$/.test(name)) continue;
+    const path = root + '/' + name;
+    if (!fs.statSync(path).isFile()) continue;
+    const body = fs.readFileSync(path, 'utf8');
+    for (const marker of markers) if (body.includes(marker)) matches[marker].push(path);
+  }
+}
+fs.writeFileSync('/export/compiled-task-hook-locations.json', JSON.stringify(matches, null, 2) + '\n');
+for (const marker of markers) assert(matches[marker].length > 0, marker);
+const result = JSON.parse(fs.readFileSync('/export/native-verdict.json', 'utf8'));
+result.compiledTaskHooksPresent = true;
+fs.writeFileSync('/export/native-verdict.json', JSON.stringify(result, null, 2) + '\n');
+JS

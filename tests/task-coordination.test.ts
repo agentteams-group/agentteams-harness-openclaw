@@ -61,7 +61,9 @@ print(pathlib.Path(${JSON.stringify(cliReceipt)}).read_text())
   vi.stubEnv('PATH', temporary + path.delimiter + process.env.PATH);
   const inputs: string[] = [];
   const sessions: string[] = [];
-  const { handler } = createMatrixHandlerTestHarness({ cfg: { channels: { matrix: { dm: { allowFrom: ['*'] } } }, plugins: { entries: { 'agentteams-teamharness': { config: { team: 'team' } } } } }, logVerboseMessage: console.log, runtime: {error: console.error} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx }) => {
+  const { handler } = createMatrixHandlerTestHarness({ isDirectMessage: false, groupPolicy: 'allowlist',
+    groupAllowFrom: ['@worker:example.org'], roomsConfig: { '!room:example.org': { requireMention: false } },
+    cfg: { channels: { matrix: { groupPolicy: 'allowlist', groupAllowFrom: ['@worker:example.org'] } }, plugins: { entries: { 'agentteams-teamharness': { config: { team: 'team' } } } } }, logVerboseMessage: console.log, runtime: {error: console.error} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx }) => {
     inputs.push(String(ctx.BodyForAgent));
     sessions.push(String(ctx.SessionKey));
     return { queuedFinal: false, counts: { final: 0, block: 0, tool: 0 } };

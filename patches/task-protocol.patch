@@ -28,7 +28,8 @@
          event.content.body = packet.text;
          coordinationSession = packet.session_id;
 +        coordinationMeta = packet.meta;
-         Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: true });
+-        Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: true });
++        Object.defineProperty(event, Symbol.for("agentteams.coordination.verified"), { value: assigned?.kind });
        }
        const eventType = event.type;
 @@ -383,6 +386,11 @@
@@ -124,3 +125,29 @@
    const hookResult = preserveExactPrompt
      ? undefined
      : await resolvePromptBuildHookResult({
+--- a/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
++++ b/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
+@@ -121,7 +121,11 @@
+     : undefined;
+   const roomConfig = roomConfigInfo?.config;
+   const allowBotsMode = resolveMatrixAllowBotsMode(roomConfig?.allowBots ?? accountAllowBots);
+-  const isConfiguredBotSender = configuredBotUserIds.has(senderId);
++  const isVerifiedSelfClosure =
++    senderId === selfUserId &&
++    (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")] ===
++      "main_task_ready";
++  const isConfiguredBotSender = configuredBotUserIds.has(senderId) && !isVerifiedSelfClosure;
+   const roomMatchMeta = roomConfigInfo
+     ? `matchKey=${roomConfigInfo.matchKey ?? "none"} matchSource=${
+         roomConfigInfo.matchSource ?? "none"
+@@ -186,8 +190,8 @@
+     storeAllowFrom,
+     dmPolicy,
+     groupPolicy,
+-    groupAllowFrom: liveGroupAllowFrom,
+-    roomUsers,
++    groupAllowFrom: isVerifiedSelfClosure ? [...liveGroupAllowFrom, senderId] : liveGroupAllowFrom,
++    roomUsers: isVerifiedSelfClosure && roomUsers.length > 0 ? [...roomUsers, senderId] : roomUsers,
+     senderId,
+     isRoom,
+     conversationId: roomId,

@@ -45,6 +45,7 @@ jobs:
           repository: agentteams-group/agentteams-harness-openclaw
           run-id: 44989791979
           artifact-ids: 14741471578
+          merge-multiple: true
           path: sdk-reuse
           github-token: ${{ github.token }}
       - name: Verify reused immutable SDK artifact

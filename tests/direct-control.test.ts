@@ -9,7 +9,8 @@ import { createMatrixHandlerTestHarness, createMatrixTextMessageEvent } from './
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
 
-it.each(['stop', 'steer'] as const)('confirms %s after the native exec exits and keeps supplement context', async (action) => {
+it('confirms Stop after the native exec exits', async () => {
+  const action = 'stop';
   installMatrixMonitorTestRuntime();
   const directory = mkdtempSync(path.join(tmpdir(), 'at-dm-openclaw-'));
   directories.push(directory);
@@ -44,11 +45,43 @@ it.each(['stop', 'steer'] as const)('confirms %s after the native exec exits and
   expect(existsSync(marker)).toBe(false);
   const statuses = sent.mock.calls.map(call => (call[1] as Record<string, any>)['com.agentteams.execution']?.status).filter(Boolean);
   expect(statuses.slice(0, 3)).toEqual(['running', 'stopping', 'stopped']);
-  if (action === 'steer') {
-    expect(inputs).toHaveLength(2);
-    expect(inputs[1]).toContain('原任务：分析订单');
-    expect(inputs[1]).toContain('新增杭州的数据');
-  } else {
-    expect(inputs).toHaveLength(1);
+  expect(inputs).toHaveLength(1);
+}, 30000);
+
+it('routes consecutive supplements through native /steer while the original tool stays alive', async () => {
+  installMatrixMonitorTestRuntime();
+  const directory = mkdtempSync(path.join(tmpdir(), 'at-dm-openclaw-steer-'));
+  directories.push(directory);
+  const pidfile = path.join(directory, 'pid');
+  const marker = path.join(directory, 'finished');
+  const sent = vi.fn(async () => '$status');
+  const members = vi.fn(async () => ['@bot:example.org', '@user:example.org']);
+  const commands: string[] = [];
+  const exec = createExecTool({ host: 'gateway', security: 'full', ask: 'off', allowBackground: false, notifyOnExit: false });
+  const { handler } = createMatrixHandlerTestHarness({
+    client: { getJoinedRoomMembers: members, sendMessage: sent } as never,
+    dispatchInboundMessage: async ({ ctx, replyOptions }) => {
+      if (ctx.MessageSid === '$original') {
+        await replyOptions?.onAgentRunStart?.('native-run');
+        await exec.execute('native-tool', { command: `echo $$ > ${pidfile}; sleep 3; touch ${marker}`, timeoutSeconds: 10 }, replyOptions?.abortSignal);
+      } else {
+        commands.push(String(ctx.CommandBody));
+      }
+      return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+    },
+  });
+  const original = handler('!room:example.org', createMatrixTextMessageEvent({ eventId: '$original', body: '原任务' }));
+  await expect.poll(() => existsSync(pidfile), { timeout: 20000 }).toBe(true);
+  for (let index = 0; index < 2; index++) {
+    const control = createMatrixTextMessageEvent({ eventId: `$control-${index}`, body: `补充 ${index}` });
+    control.content = { ...control.content, 'com.agentteams.control': { action: 'steer', agent_id: '@bot:example.org', run_id: '$original' } } as never;
+    await handler('!room:example.org', control);
+    expect(() => process.kill(Number(readFileSync(pidfile, 'utf8').trim()), 0)).not.toThrow();
   }
+  expect(commands).toEqual(['/steer 补充 0', '/steer 补充 1']);
+  const statuses = () => sent.mock.calls.map(call => (call[1] as Record<string, any>)['com.agentteams.execution']?.status).filter(Boolean);
+  expect(statuses()).toEqual(['running']);
+  await original;
+  expect(existsSync(marker)).toBe(true);
+  expect(statuses()).toEqual(['running', 'completed']);
 }, 30000);

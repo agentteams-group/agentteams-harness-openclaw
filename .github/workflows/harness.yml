@@ -1,105 +1,68 @@
-name: OpenClaw native ARM SDK artifact
-
+name: OpenClaw exact SDK delta artifact
 on:
   workflow_dispatch:
-
 permissions:
   contents: read
   actions: read
-
 jobs:
-  sdk-artifact:
+  sdk-delta:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    env:
-      WORKER_REF: 1fdfe651a4b10bffcdb652025e03e369cda89c43
-      SDK_COMPILED_REF: 0c93456e90a5f1d732dbc4f2fd506728e4a0b088
-      CORE_REF: 32e43f216d5b85057db9a55106fa930473f1c959
-      SDK_BASE: higress-registry.cn-hangzhou.cr.aliyuncs.com/agentteams/agentteams-harness-openclaw@sha256:5293ca7c244e5a3538c80d6f69d32035b8ef566eac124f00e2973dd9442c7612
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Verify frozen runtime and native runner
+      - name: Verify frozen production source and runner capacity
         run: |
           set -euo pipefail
           test "$(uname -m)" = aarch64
-          test "$(sed -n 's/^AT_REF=//p' versions.env)" = "$CORE_REF"
-          git diff --exit-code "$WORKER_REF" -- Dockerfile runtime patches scripts tests versions.env
-          git diff --exit-code "$SDK_COMPILED_REF" -- Dockerfile runtime patches scripts versions.env
-          df -h /
-          free -h
-          test "$(awk '/MemAvailable:|SwapFree:/{total+=$2} END{print total}' /proc/meminfo)" -ge 7340032
-          test "$(df -Pk / | tail -1 | awk '{print $4}')" -ge 10485760
+          git diff --exit-code 1fdfe651a4b10bffcdb652025e03e369cda89c43 -- Dockerfile runtime patches scripts tests versions.env
+          test "$(df -Pk / | tail -1 | awk '{print $4}')" -ge 2097152
           mkdir -p sdk-export
           git rev-parse HEAD > sdk-export/ci-revision.txt
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          repository: agentscope-ai/AgentTeams
-          ref: ${{ env.CORE_REF }}
-          path: .deps/core
-          persist-credentials: false
+          repository: agentteams-group/agentteams-harness-openclaw
+          run-id: 44978203609
+          artifact-ids: 14736621291
+          merge-multiple: true
+          path: sdk-old
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           repository: agentteams-group/agentteams-harness-openclaw
           run-id: 44989791979
           artifact-ids: 14741471578
           merge-multiple: true
-          path: sdk-reuse
+          path: sdk-new
           github-token: ${{ github.token }}
-      - name: Verify reused immutable SDK artifact
-        run: |
-          set -euo pipefail
-          gh api repos/agentteams-group/agentteams-harness-openclaw/actions/artifacts/14741471578 > sdk-export/reused-artifact-api.json
-          python3 - <<'PYMETA'
-          import json
-          from pathlib import Path
-          a=json.loads(Path('sdk-export/reused-artifact-api.json').read_text())
-          assert a['digest']=='sha256:c2885a776c28351248c1b10c08ddadd50c48461eae32f04576758363a57d8d1c'
-          v=json.loads(Path('sdk-reuse/native-verdict.json').read_text())
-          assert v['workerSource']=='0c93456e90a5f1d732dbc4f2fd506728e4a0b088'
-          assert v['coreSource']=='32e43f216d5b85057db9a55106fa930473f1c959'
-          PYMETA
-          cd sdk-reuse
-          sha256sum --check openclaw-sdk-runtime.tar.gz.sha256
+      - name: Verify immutable artifact digests
         env:
           GH_TOKEN: ${{ github.token }}
-      - name: Pull exact SDK base anonymously
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/oc-anonymous-docker"
-          DOCKER_CONFIG="$RUNNER_TEMP/oc-anonymous-docker" docker pull "$SDK_BASE"
-          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$SDK_BASE")" = linux/arm64
-          test "$(df -Pk / | tail -1 | awk '{print $4}')" -ge 3670016
-          docker image inspect --format '{{json .RepoDigests}}' "$SDK_BASE" > sdk-export/sdk-base-digests.json
-      - name: Verify reused complete qaRuntime with native SDK
-        env:
-          CI_REVISION: ${{ github.sha }}
+          gh api repos/agentteams-group/agentteams-harness-openclaw/actions/artifacts/14736621291 > sdk-export/old-artifact-api.json
+          gh api repos/agentteams-group/agentteams-harness-openclaw/actions/artifacts/14741471578 > sdk-export/new-artifact-api.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          assert json.loads(Path('sdk-export/old-artifact-api.json').read_text())['digest']=='sha256:4119d274af6441b63c8d26539dc48bd5769cb21d44317cdf01aa139c2a9f17cc'
+          assert json.loads(Path('sdk-export/new-artifact-api.json').read_text())['digest']=='sha256:c2885a776c28351248c1b10c08ddadd50c48461eae32f04576758363a57d8d1c'
+          PY
+      - name: Prove complete-tree replay and measured local budget
         run: |
           set -euo pipefail
-          chmod 777 sdk-export
-          docker run --name oc-sdk-artifact --network none --cpus 2 --memory 6g --memory-swap 8g \
-            -e OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB=4352 -e RAYON_NUM_THREADS=2 \
-            -e AGENTTEAMS_OTEL_ENABLED=false -e AGENTTEAMS_AGENT_ROLE=worker \
-            -e AGENTTEAMS_PLUGIN_DIR=/opt/agentteams/plugins/teamharness \
-            -e PYTHONPATH=/opt/agentteams/scripts/lib/telemetry:/opt/agentteams/scripts/lib \
-            -e WORKER_REF -e CORE_REF -e SDK_BASE -e CI_REVISION -e SDK_COMPILED_REF \
-            -v "$PWD:/frozen:ro" -v "$PWD/sdk-export:/export" -v "$PWD/sdk-reuse:/reuse:ro" \
-            -v "$PWD/.deps/core/shared/lib:/core-shared:ro" \
-            -v "$PWD/.deps/core/plugins/teamharness:/core-teamharness:ro" \
-            --entrypoint /bin/bash "$SDK_BASE" /frozen/.github/scripts/build-sdk-artifact.sh \
-            2>&1 | tee sdk-export/build-native-sdk.log
-      - name: Record exit and capacity evidence
+          python3 .github/scripts/prepare-sdk-delta.py 2>&1 | tee sdk-export/delta-check.log
+      - name: Record final runner capacity
         if: always()
         run: |
-          docker inspect --format '{{json .State}}' oc-sdk-artifact > sdk-export/container-state.json || true
           df -h / > sdk-export/runner-disk.txt
           free -h > sdk-export/runner-memory.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: openclaw-native-arm64-sdk-${{ github.run_id }}
+          name: openclaw-exact-sdk-delta-${{ github.run_id }}
           path: sdk-export/
           retention-days: 7
           if-no-files-found: error

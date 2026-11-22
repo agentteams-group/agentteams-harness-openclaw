@@ -45,6 +45,7 @@ sha256sum openclaw-sdk-runtime.tar.gz > openclaw-sdk-runtime.tar.gz.sha256
 sha256sum /frozen/patches/task-protocol.patch /frozen/runtime/*.ts > worker-inputs.sha256
 
 # Native SDK checks execute against the actual patched source and compiled SDK.
+cd /opt/openclaw
 git archive HEAD test | tar -x
 for name in task-protocol task-checkpoint task-journal task-queue; do
   cp /frozen/tests/$name.test.ts src/agents/agentteams-$name.test.ts

@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager } from "/opt/openclaw/src/agents/sessions/index.js";
 import { guardSessionManager } from "/opt/openclaw/src/agents/session-tool-result-guard-wrapper.js";
 import { withSessionManagerWrite } from "/opt/openclaw/src/agents/sessions/session-manager-write-admission.js";
-import { checkpointTaskDeliveries, prepareTaskDeliveries, taskMiddlewareContext } from "/opt/openclaw/src/agents/agentteams-task-checkpoint.js";
+import { checkpointTaskDeliveries, prepareTaskDeliveries, taskMiddlewareContext, checkpointCanonicalReceipts } from "/opt/openclaw/src/agents/agentteams-task-checkpoint.js";
 
 afterEach(() => vi.restoreAllMocks());
 const fact = "[Task system delivery record]\nOwn synthetic accepted report; no new request.";
@@ -52,4 +52,20 @@ it("deduplicates the persisted receipt after a post-commit interruption", async 
   const read = vi.fn(async (request) => { expect(request.middle).toEqual(taskMiddlewareContext(f.manager)); return { facts: [], acknowledgements: {} }; });
   await prepareTaskDeliveries(f.frame, f.manager, read);
   expect(f.frame.deliveryFacts).toEqual([]);
+});
+
+
+it("persists common canonical receipts before actual model context and deduplicates retries", async () => {
+  const f = fixture();
+  const receipts = [{ receiptId: "public-receipt", fact: "Task system saved this exact plan." }];
+  await checkpointCanonicalReceipts(receipts, f.context, f.native);
+  await checkpointCanonicalReceipts(receipts, f.context, f.native);
+  expect(f.manager.buildSessionContext().messages).toHaveLength(1);
+  expect(f.context.messages).toEqual(f.native.session.agent.state.messages);
+  expect(f.context.messages[0].content[0].text).toContain("saved tool result, not a new request");
+});
+it("does not expose a canonical receipt to the model when checkpoint persistence fails", async () => {
+  const f = fixture(); f.native.persist = async () => { throw new Error("own storage fixture"); };
+  await expect(checkpointCanonicalReceipts([{ receiptId: "public", fact: "saved" }], f.context, f.native)).rejects.toThrow("storage fixture");
+  expect(f.context.messages).toEqual([]);
 });

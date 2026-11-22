@@ -61,3 +61,27 @@ export async function checkpointTaskDeliveries(frame: DeliveryFrame, context: an
   }
   frame.deliveryAcknowledgements = {};
 }
+
+export async function checkpointCanonicalReceipts(receipts: Array<{ receiptId: string; fact: string }>, context: any, native: {
+  manager: Manager; session: any; persist: (write: () => Promise<void>) => Promise<void>;
+}) {
+  if (!receipts.length) return;
+  const admitted: any[] = [];
+  await native.persist(async () => {
+    for (const receipt of receipts) {
+      const key = "agentteams:canonical-receipt:" + receipt.receiptId;
+      let message = native.manager.buildSessionContext().messages.find((saved) => saved.idempotencyKey === key);
+      if (!message) {
+        message = { role: "user", content: [{ type: "text", text:
+          "[Recovered Task system receipt]\nThis is a saved tool result, not a new request.\n" + receipt.fact }],
+          timestamp: Date.now(), idempotencyKey: key };
+        await native.manager.appendMessageAsync(message);
+      }
+      admitted.push(message);
+    }
+    native.manager.flushPendingPersistence();
+  });
+  for (const messages of [native.session.agent.state.messages, context.messages]) {
+    for (const message of admitted) if (!messages.some((saved: any) => saved.idempotencyKey === message.idempotencyKey)) messages.push(message);
+  }
+}

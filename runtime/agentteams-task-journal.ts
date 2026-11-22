@@ -31,7 +31,7 @@ export async function admitNativeTaskTools(frame: Frame | undefined, call: RPC =
   if (!frame?.journal) return;
   if (frame.unresolvedEffects) throw new Error("Native tool outcome requires authoritative verification");
   const { kind, identity } = frame.journal;
-  await call({ action: kind === "task" ? "admit_tools" : "matrix.message.current", identity, runtime: "openclaw" });
+  return await call({ action: kind === "task" ? "admit_tools" : "matrix.message.current", identity, runtime: "openclaw" });
 }
 
 export async function prepareNativeMessage(meta: Record<string, any>, call: RPC = nativeRecoveryRPC) {

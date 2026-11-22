@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { createAssistantMessageEventStream } from "../llm/utils/event-stream.js";
 import { buildUsageWithNoCost } from "./stream-message-shared.js";
 import { admitNativeTaskTools, prepareNativeMessage } from "./agentteams-task-journal.js";
-import { checkpointTaskDeliveries } from "./agentteams-task-checkpoint.js";
+import { checkpointTaskDeliveries, checkpointCanonicalReceipts } from "./agentteams-task-checkpoint.js";
 import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
 export type TaskProtocolFrame = {
@@ -74,7 +74,17 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
         model: model.id, usage: buildUsageWithNoCost({}), stopReason: "stop", timestamp: Date.now() } });
       return stream;
     }
-    await admitNativeTaskTools(frame);
+    const admission = await admitNativeTaskTools(frame);
+    const receipts = [...(admission?.receipts || [])];
+    if (frame.journal?.kind !== "task" && process.env.AGENTTEAMS_CONTROLLER_URL) {
+      const canonical = await taskNative({ operation: "canonical_admit", context: frame.context });
+      if (canonical.ok !== true) {
+        frame.unresolvedEffects = true;
+        throw new Error("Canonical Task outcome requires authoritative verification before model admission");
+      }
+      receipts.push(...(canonical.receipts || []));
+    }
+    await checkpointCanonicalReceipts(receipts, context, native);
     if (native.runId && process.env.AGENTTEAMS_OTEL_ENABLED === "true") {
       const text = (message: any) => typeof message.content === "string" ? message.content
         : (message.content || []).map((part: any) => part.text || "").join("\n");

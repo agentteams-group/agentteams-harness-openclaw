@@ -1,4 +1,5 @@
 // Native SDK checkpoints on synthetic state only; never opens live sessions.
+import { createServer } from "node:http";
 import { afterEach, expect, it, vi } from "vitest";
 import { SessionManager } from "/opt/openclaw/src/agents/sessions/index.js";
 import { guardSessionManager } from "/opt/openclaw/src/agents/session-tool-result-guard-wrapper.js";
@@ -145,4 +146,40 @@ it("retains multibyte native bridge data across stdout chunks", async () => {
   const note = "汉字输入".repeat(25000);
   const result = await taskNative({ operation: "ack_delivery_context", middle: { note }, acknowledgements: {} });
   expect(result.note).toBe(note);
+});
+
+
+async function canonicalServer(reply: any, use: () => Promise<void>) {
+  const server = createServer((request, response) => {
+    expect(request.url).toBe("/api/v1/tasks/native-operations");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify(reply));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as { port: number };
+  vi.stubEnv("AGENTTEAMS_CONTROLLER_URL", "http://127.0.0.1:" + address.port);
+  vi.stubEnv("AGENTTEAMS_AUTH_TOKEN", "own-fixture");
+  try { await use(); } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+}
+it("checks durable canonical phase admission before the actual native provider request", async () => {
+  await canonicalServer({ mode: "verify", authority: { task: { id: "main", status: "in_progress" } } }, async () => {
+    const f = fixture(); f.frame.pendingInputs = []; f.frame.context = { role: "leader", planning: ["main"] };
+    await expect(f.session.agent.streamFn({}, { messages: [] }, {})).rejects.toThrow("authoritative verification");
+    expect(f.streamFn).not.toHaveBeenCalled();
+    expect(f.frame.unresolvedEffects).toBe(true);
+  });
+});
+it("injects the shared cached receipt through native checkpoint before calling the provider", async () => {
+  const result = { task: { id: "main", kind: "main", planId: "plan", status: "in_progress" }, progress: "pending", assignments: [] };
+  await canonicalServer({ mode: "admitted", action: "plan", result }, async () => {
+    const f = fixture(); f.frame.pendingInputs = []; f.frame.context = { role: "leader", planning: ["main"] };
+    const context = { messages: [] };
+    await f.session.agent.streamFn({}, context, {});
+    expect(f.streamFn).toHaveBeenCalledOnce();
+    const saved = f.manager.buildSessionContext().messages;
+    expect(saved).toHaveLength(1);
+    expect(saved[0].role).toBe("user");
+    expect(saved[0].content[0].text).toContain("saved your execution plan");
+    expect(context.messages).toEqual(f.native.session.agent.state.messages);
+  });
 });

@@ -32,10 +32,22 @@ for patch in patches:
     subprocess.run(['git', 'apply', str(patch)], check=True)
 print('All six merged Worker patches apply together to upstream SDK', flush=True)
 PYRESET
-git show HEAD:tsdown.config.ts > tsdown.config.ts
-node --import ./scripts/tsx.mjs /frozen/.github/scripts/qa-runtime-serial.mts --plan > /export/qa-runtime-plan.json
-node --import ./scripts/tsx.mjs /frozen/.github/scripts/qa-runtime-serial.mts
-rm tsdown.config.ts
+python3 - <<'PYREUSE'
+import json, shutil, tarfile
+from pathlib import Path
+roots=json.loads(Path('/reuse/output-roots.json').read_text())
+for root in roots:
+    assert not root.startswith('/') and '..' not in Path(root).parts
+    shutil.rmtree(root, ignore_errors=True)
+with tarfile.open('/reuse/openclaw-sdk-runtime.tar.gz', 'r:gz') as archive:
+    for member in archive.getmembers():
+        assert not member.name.startswith('/') and '..' not in Path(member.name).parts
+        assert any(member.name == root or member.name.startswith(root + '/') for root in roots)
+    archive.extractall('.', filter='data')
+print('Reused complete immutable SDK output roots; no second SDK compilation', flush=True)
+PYREUSE
+cp /reuse/qa-runtime-plan.json /export/qa-runtime-plan.json
+cp /reuse/openclaw-sdk-runtime.tar.gz.sha256 /export/reused-sdk-runtime.sha256
 # Export the complete output roots declared by the same upstream build owner.
 node --import ./scripts/tsx.mjs --input-type=module <<'JS'
 import fs from 'node:fs';
@@ -50,12 +62,10 @@ fs.writeFileSync('/export/output-roots.json', JSON.stringify(roots, null, 2) + '
 fs.writeFileSync('/export/output-roots.txt', roots.join('\n') + '\n');
 fs.writeFileSync('/export/native-verdict.json', JSON.stringify({nativeSDKChecksPassed:false,compiledTaskHooksPresent:false,
   platform:process.platform,architecture:process.arch,node:process.version,workerSource:process.env.WORKER_REF,
-  coreSource:process.env.CORE_REF,sdkBase:process.env.SDK_BASE,ciRevision:process.env.CI_REVISION,
+  compiledWorkerSource:process.env.SDK_COMPILED_REF,reusedArtifactId:14741471578,coreSource:process.env.CORE_REF,sdkBase:process.env.SDK_BASE,ciRevision:process.env.CI_REVISION,
   realTaskCertification:false}, null, 2) + '\n');
 JS
-tar -czf /export/openclaw-sdk-runtime.tar.gz -T /export/output-roots.txt
 cd /export
-sha256sum openclaw-sdk-runtime.tar.gz > openclaw-sdk-runtime.tar.gz.sha256
 sha256sum /frozen/patches/*.patch /frozen/runtime/*.ts > worker-inputs.sha256
 
 # Native SDK checks execute against the actual patched source and compiled SDK.

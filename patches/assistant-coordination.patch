@@ -20,3 +20,21 @@
      dmPolicy,
      groupPolicy,
      groupAllowFrom: isVerifiedSelfClosure ? [...liveGroupAllowFrom, senderId] : liveGroupAllowFrom,
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -431,7 +431,7 @@
+       // hook can rewrite or cancel so the original payload cannot escape the delivery gate.
+       const hookRunner = getGlobalHookRunner();
+-      const allowProviderPreview = !(
++      const allowProviderPreview = coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest" && !(
+         (hookRunner?.hasHooks("reply_payload_sending") ?? false) ||
+         (hookRunner?.hasHooks("message_sending") ?? false)
+       );
+       const draftController = await createMatrixDraftController({
+@@ -596,5 +596,6 @@
+             dispatcherOptions: {
+               ...turnDispatcherOptions,
++              ...(coordinationMeta?.teamharness_coordination?.kind === "assistant_digest" ? { transformReplyPayload: () => null } : {}),
+               onSettled: () => draftController.cancelProgressDraft(),
+             },
+             replyOptions: {

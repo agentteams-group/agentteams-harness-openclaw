@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import path from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { createReplyDispatcherWithTyping } from '/opt/openclaw/src/auto-reply/reply/reply-dispatcher.ts';
 import { installMatrixMonitorTestRuntime } from '../../test-runtime.js';
 import { createMatrixHandlerTestHarness, createMatrixTextMessageEvent } from './handler.test-helpers.js';
 
@@ -27,10 +28,13 @@ it('admits an authenticated assistant reminder through the native Teams channel 
   Object.assign(process.env, { AGENTTEAMS_CONTROLLER_URL: `http://127.0.0.1:${address.port}`, AGENTTEAMS_AUTH_TOKEN_FILE: token, AGENTTEAMS_AGENT_ROLE: 'leader' });
   const inputs: string[] = [];
   const sessions: string[] = [];
-  const { handler } = createMatrixHandlerTestHarness({ dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'research'}}}}}, logVerboseMessage: console.log, runtime: {error: console.error} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx }) => {
+  const sent = vi.fn().mockResolvedValue('$unexpected');
+  const errors = vi.fn();
+  const { handler } = createMatrixHandlerTestHarness({ createReplyDispatcherWithTyping, client: {sendMessage: sent} as never, dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'research'}}}}}, logVerboseMessage: console.log, runtime: {error: errors} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx, dispatcher }) => {
     expect((ctx.GatewayRunToolBindings as any)?.agentteamsTask?.prepared).toEqual({});
     inputs.push(String(ctx.BodyForAgent));
     sessions.push(String(ctx.SessionKey));
+    dispatcher.sendFinalReply({text: 'No usable new information'});
     return { queuedFinal: false, counts: { final: 0, block: 0, tool: 0 } };
   } });
   try {
@@ -41,6 +45,8 @@ it('admits an authenticated assistant reminder through the native Teams channel 
     expect(inputs[0]).toContain(canonicalText);
     expect(inputs[0]).not.toContain('Visible projection');
     expect(sessions[0]).toContain(encodeURIComponent(control.session_id));
+    expect(sent).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
     completed = false;
     receipt.native_id = 'matrix:$stale';
     await handler('!room:example.org', { ...message, event_id: '$stale' });

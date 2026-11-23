@@ -179,6 +179,7 @@ export async function prepareTaskProtocol(meta: Record<string, any>): Promise<Ta
     frame.context.sources = await taskNative({ operation: "sources", meta });
     frame.deliveryRoom = meta.room_id;
   }
+  if (event?.kind === "assistant_digest") return frame;
   if (!event && role !== "manager") frame.journal = await prepareNativeMessage(meta);
   if (role === "manager") frame.roster = await taskNative({ operation: "roster", role });
   else if (["leader", "team_leader"].includes(role)) frame.roster = await taskNative({

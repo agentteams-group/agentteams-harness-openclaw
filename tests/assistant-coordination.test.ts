@@ -17,8 +17,10 @@ it('admits an authenticated assistant reminder through the native Teams channel 
   const control = { session_id: 'coordination-assistant:' + event.id, channel_meta: { sender_id: '@bot:example.org', agent_matrix_user_id: '@bot:example.org', room_id: '!room:example.org', assistant_team: 'research', assistant_request_id: 'daily-1', teamharness_coordination: event }, input: [{ content: [{ text: canonicalText }] }] };
   const receipt = { status: 'running', native_id: 'matrix:$closure', actor: '@bot:example.org', recipient: '@bot:example.org', room_id: '!room:example.org', control };
   let completed = true;
+  const rosterRequests: string[] = [];
   const server = createServer((request, response) => {
     expect(request.headers.authorization).toBe('Bearer test-token');
+    if (request.url?.startsWith('/api/v1/teams/')) rosterRequests.push(request.url);
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify(request.url?.includes('coordination/') ? receipt : request.url === '/api/v1/teams/research' ? {name: 'research', members: []} : { owner: completed ? 'current-role-instance' : 'replaced', roomId: '!room:example.org', context: {enabled: true} }));
   }).listen(0, '127.0.0.1');
@@ -30,7 +32,7 @@ it('admits an authenticated assistant reminder through the native Teams channel 
   const sessions: string[] = [];
   const sent = vi.fn().mockResolvedValue('$unexpected');
   const errors = vi.fn();
-  const { handler } = createMatrixHandlerTestHarness({ createReplyDispatcherWithTyping, client: {sendMessage: sent} as never, dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'research'}}}}}, logVerboseMessage: console.log, runtime: {error: errors} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx, dispatcher }) => {
+  const { handler } = createMatrixHandlerTestHarness({ createReplyDispatcherWithTyping, client: {sendMessage: sent} as never, dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'OpenClaw 验收'}}}}}, logVerboseMessage: console.log, runtime: {error: errors} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx, dispatcher }) => {
     expect((ctx.GatewayRunToolBindings as any)?.agentteamsTask?.prepared).toEqual({});
     inputs.push(String(ctx.BodyForAgent));
     sessions.push(String(ctx.SessionKey));
@@ -47,6 +49,7 @@ it('admits an authenticated assistant reminder through the native Teams channel 
     expect(sessions[0]).toContain(encodeURIComponent(control.session_id));
     expect(sent).not.toHaveBeenCalled();
     expect(errors).not.toHaveBeenCalled();
+    expect(rosterRequests).toEqual([]);
     completed = false;
     receipt.native_id = 'matrix:$stale';
     await handler('!room:example.org', { ...message, event_id: '$stale' });

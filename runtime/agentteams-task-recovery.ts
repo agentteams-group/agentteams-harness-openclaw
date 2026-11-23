@@ -1,5 +1,6 @@
 // Native conversations are caches. The shared Python client owns Task protocol.
 import { spawn } from "node:child_process";
+import { attachTaskProtocol, prepareTaskProtocol } from "../../../../../src/agents/agentteams-task-protocol.js";
 import { createHash, randomUUID } from "node:crypto";
 import { finalizeInboundContext } from "openclaw/plugin-sdk/reply-runtime";
 import {
@@ -14,9 +15,10 @@ import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
 type Identity = { task_id: string; team_id: string; generation: number; instance_id: string; process_id: string };
 type Checkpoint = { delivery?: string; reply_txn?: string };
-type Task = { task_id: string; room_id: string; status: string; title?: string; execution: {
+type Task = { task_id: string; room_id: string; status: string; title?: string; task_plan_id?: string;
+  main_task_id?: string; project_id?: string; notifyTxn?: string; execution: {
   generation: number; instance_id: string; process_id: string; state: string; checkpoint?: Checkpoint;
-} };
+}; task_notifications?: { assigned?: { event_id?: string } } };
 type Snapshot = { instance_id: string; tasks: Array<{ task: Task; team_id: string; etag: string }> };
 type Claimed = { task: Task; saved_result: string; resume_text: string };
 type SessionWork = { kind: "task"; team_id: string; task_id: string };
@@ -231,18 +233,28 @@ export class AgentTeamsTaskRecovery {
     try {
       await this.rpc({ action: "current", identity });
       if (!(await client.getJoinedRooms()).includes(task.room_id)) throw new Error("Task room not joined yet");
-      text += "\nYour Task tools are bundled as an MCP stdio server. Call them with your native terminal tool:\n"
-        + "mcporter call --stdio python3 --stdio-arg /opt/agentteams/plugins/teamharness/mcp/server.py taskflow --args '<JSON arguments>'\n"
-        + "Use this taskflow tool for ack_task, checkpoint_task and submit_task; preserve the current Task/team IDs. "
-        + "Its scoped credentials and process identity are inherited. Do not replace it with raw Task metadata writes.\n";
+      if (!task.task_plan_id) {
+        text += "\nUse your legacy Task recovery tools for this pre-protocol assignment. Preserve its Task/team identity.\n";
+      }
       const sourceEventId = this.sources.get(this.key(task.room_id, task.task_id));
       // The old Matrix event may reappear after restart. Its native dedup key
       // belongs to the first turn, even when we reuse that turn's session.
       const messageId = (identity.generation === 1 ? sourceEventId : undefined)
         ?? `recovery:${identity.team_id}/${task.task_id}:${identity.generation}`;
+      const protocol = task.task_plan_id ? await prepareTaskProtocol({
+        event_id: sourceEventId ?? messageId, room_id: task.room_id,
+        teamharness_coordination: { id: task.task_notifications?.assigned?.event_id, kind: "task_assigned", task_id: task.task_id,
+          main_task_id: task.main_task_id ?? "", project_id: task.project_id ?? "", delivery_id: task.notifyTxn },
+      }) : undefined;
+      if (protocol) protocol.journal = { kind: "task", identity };
+      if (protocol) Object.assign(protocol.traceFields!, {
+        "agentteams.task.id": identity.task_id, "agentteams.team.id": identity.team_id,
+        "agentteams.execution.generation": identity.generation,
+      });
       registerTaskTraceContext(sessionKey, { "agentteams.task.id": identity.task_id,
         "agentteams.team.id": identity.team_id, "agentteams.room.id": task.room_id,
-        "agentteams.execution.generation": identity.generation, "agentteams.event.id": sourceEventId ?? messageId });
+        "agentteams.execution.generation": identity.generation,
+        ...(sourceEventId?.startsWith("$") ? { "agentteams.event.id": sourceEventId } : {}) });
       const access = await resolveMatrixMonitorAccessState({ accountId, senderId: userId, isRoom: true,
         conversationId: task.room_id, allowFrom: [userId], storeAllowFrom: [], groupPolicy: "allowlist",
         groupAllowFrom: [userId], roomUsers: [userId], dmPolicy: "disabled" });
@@ -255,6 +267,7 @@ export class AgentTeamsTaskRecovery {
         reply: { to: `room:${task.room_id}`, nativeChannelId: task.room_id },
         message: { body: text, rawBody: text, bodyForAgent: text, commandBody: text },
         access: { commands: { authorized: false } }, extra: { GroupId: task.room_id, GroupSubject: task.title } });
+      attachTaskProtocol(ctxPayload, protocol);
       let finalText = "";
       await core.channel.inbound.run({ channel: "matrix", accountId, raw: task,
         adapter: {

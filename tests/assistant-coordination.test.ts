@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import path from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { createReplyDispatcherWithTyping } from '/opt/openclaw/src/auto-reply/reply/reply-dispatcher.ts';
+import { isMainRestartRecoveryCandidate } from '/opt/openclaw/src/config/sessions/restart-recovery-state.ts';
 import { installMatrixMonitorTestRuntime } from '../../test-runtime.js';
 import { createMatrixHandlerTestHarness, createMatrixTextMessageEvent } from './handler.test-helpers.js';
 
@@ -32,10 +33,11 @@ it('admits an authenticated assistant reminder through the native Teams channel 
   const sessions: string[] = [];
   const sent = vi.fn().mockResolvedValue('$unexpected');
   const errors = vi.fn();
-  const { handler } = createMatrixHandlerTestHarness({ createReplyDispatcherWithTyping, client: {sendMessage: sent} as never, dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'OpenClaw 验收'}}}}}, logVerboseMessage: console.log, runtime: {error: errors} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx, dispatcher }) => {
+  const { handler } = createMatrixHandlerTestHarness({ createReplyDispatcherWithTyping, client: {sendMessage: sent, getJoinedRoomMembers: async () => ['@bot:example.org', '@human:example.org']} as never, dmPolicy: 'allowlist', allowFrom: ['@human:example.org'], configuredBotUserIds: new Set(['@bot:example.org']), cfg: {plugins: {entries: {'agentteams-teamharness': {config: {team: 'OpenClaw 验收'}}}}}, logVerboseMessage: console.log, runtime: {error: errors} as never, logger: {warn: console.warn, info: console.info, error: console.error, debug: console.log} as never, dispatchInboundMessage: async ({ ctx, dispatcher, replyOptions }) => {
     expect((ctx.GatewayRunToolBindings as any)?.agentteamsTask?.prepared).toEqual({});
     inputs.push(String(ctx.BodyForAgent));
     sessions.push(String(ctx.SessionKey));
+    await (replyOptions as any)?.onAgentRunStart?.();
     dispatcher.sendFinalReply({text: 'No usable new information'});
     return { queuedFinal: false, counts: { final: 0, block: 0, tool: 0 } };
   } });
@@ -63,3 +65,18 @@ it('admits an authenticated assistant reminder through the native Teams channel 
     rmSync(temporary, { recursive: true, force: true });
   }
 }, 30000);
+
+it('leaves managed assistant restart recovery to AT while retaining ordinary native recovery', () => {
+  const old = process.env.AGENTTEAMS_CONTROLLER_URL;
+  const key = 'agent:main:main:coordination-assistant%3A' + 'a'.repeat(32);
+  try {
+    process.env.AGENTTEAMS_CONTROLLER_URL = 'http://controller.test';
+    expect(isMainRestartRecoveryCandidate({}, key)).toBe(false);
+    expect(isMainRestartRecoveryCandidate({}, 'agent:main:matrix:direct:human')).toBe(true);
+    delete process.env.AGENTTEAMS_CONTROLLER_URL;
+    expect(isMainRestartRecoveryCandidate({}, key)).toBe(true);
+  } finally {
+    if (old === undefined) delete process.env.AGENTTEAMS_CONTROLLER_URL;
+    else process.env.AGENTTEAMS_CONTROLLER_URL = old;
+  }
+});

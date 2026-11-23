@@ -31,6 +31,12 @@
          (hookRunner?.hasHooks("message_sending") ?? false)
        );
        const draftController = await createMatrixDraftController({
+@@ -508,4 +508,4 @@
+-      if (isDirectMessage && !directRuns.has(roomId) && await directMember(roomId, senderId)) {
++      if (coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest" && isDirectMessage && !directRuns.has(roomId) && await directMember(roomId, senderId)) {
+         let finish!: () => void;
+         const done = new Promise<void>((resolve) => { finish = resolve; });
+         directRun = { id: messageId, sender: senderId, inputs: directInputs, controller: new AbortController(), done, finish, stopped: false, started: false };
 @@ -596,5 +596,6 @@
              dispatcherOptions: {
                ...turnDispatcherOptions,
@@ -38,3 +44,18 @@
                onSettled: () => draftController.cancelProgressDraft(),
              },
              replyOptions: {
+--- a/src/config/sessions/restart-recovery-state.ts
++++ b/src/config/sessions/restart-recovery-state.ts
+@@ -46,7 +46,12 @@
+ export function isMainRestartRecoveryCandidate(
+   entry: { spawnDepth?: unknown; subagentRole?: unknown },
+   sessionKey: string,
+ ): boolean {
++  // AT replays verified assistant controls; native resume loses their receipt boundary.
++  if (process.env.AGENTTEAMS_CONTROLLER_URL &&
++      sessionKey.toLowerCase().includes(":coordination-assistant%3a")) {
++    return false;
++  }
+   if (typeof entry.spawnDepth === "number" && entry.spawnDepth > 0) {
+     return false;
+   }

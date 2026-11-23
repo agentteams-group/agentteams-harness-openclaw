@@ -22,6 +22,13 @@ FROM ${AGENTTEAMS_CONTROLLER_IMAGE} AS agentteams-controller
 
 # ============ Final Image: Based on openclaw-base ============
 # openclaw-base already includes: all-in-one + Node.js 24 + OpenClaw + mcporter + common tools
+# Build the public CLI from the same pinned Core as the protocol assets.
+FROM higress-registry.cn-hangzhou.cr.aliyuncs.com/higress/golang:1.26-alpine AS public-cli
+WORKDIR /build
+COPY --from=agentteams /agentteams-controller/ ./
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -o /out/agt ./cmd/agt && /out/agt assistant --help > /dev/null
+
 FROM ${OPENCLAW_BASE_IMAGE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends python3-yaml \
@@ -48,6 +55,8 @@ COPY runtime/agentteams-task-protocol.ts /opt/openclaw/src/agents/agentteams-tas
 COPY runtime/agentteams-trace-context.ts /opt/openclaw/src/agents/agentteams-trace-context.ts
 COPY patches/task-protocol.patch /tmp/agentteams-task-protocol.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-task-protocol.patch
+COPY patches/assistant-coordination.patch /tmp/agentteams-assistant-coordination.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-assistant-coordination.patch
 
 # The gateway loads compiled extensions from dist. Rebuild them after patching.
 RUN cd /opt/openclaw && git show HEAD:tsdown.config.ts > tsdown.config.ts \
@@ -58,7 +67,7 @@ RUN cd /opt/openclaw && git show HEAD:tsdown.config.ts > tsdown.config.ts \
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc.bin
 
 # AgentTeams CLI — for worker/team/human management via controller REST API
-COPY --from=agentteams-controller /usr/local/bin/agt /usr/local/bin/agt
+COPY --from=public-cli /out/agt /usr/local/bin/agt
 
 # ---- Built-in observability plugin (bundled unconditionally, enabled at runtime) ----
 # Placed before scripts/lib COPY so that code changes do not invalidate this layer.

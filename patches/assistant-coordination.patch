@@ -1,0 +1,22 @@
+--- a/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
++++ b/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
+@@ -123,7 +123,8 @@
+   const isVerifiedSelfClosure =
+     senderId === selfUserId &&
+-    (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")] ===
+-      "main_task_ready";
++    ["main_task_ready", "assistant_digest"].includes(String(
++      (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")],
++    ));
+   const isConfiguredBotSender = configuredBotUserIds.has(senderId) && !isVerifiedSelfClosure;
+   const roomMatchMeta = roomConfigInfo
+     ? `matchKey=${roomConfigInfo.matchKey ?? "none"} matchSource=${
+@@ -187,7 +188,7 @@
+   const { liveCfg, liveDmAllowFrom, liveGroupAllowFrom } = await resolveLiveAccountAllowlists();
+   const accessState = await resolveMatrixMonitorAccessState({
+-    allowFrom: liveDmAllowFrom,
++    allowFrom: isVerifiedSelfClosure ? [...liveDmAllowFrom, senderId] : liveDmAllowFrom,
+     storeAllowFrom,
+     dmPolicy,
+     groupPolicy,
+     groupAllowFrom: isVerifiedSelfClosure ? [...liveGroupAllowFrom, senderId] : liveGroupAllowFrom,

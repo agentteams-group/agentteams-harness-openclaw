@@ -6,7 +6,8 @@ PLATFORMS ?= linux/amd64,linux/arm64
 AT_SOURCE ?= .deps/AgentTeams
 SHARED_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):shared/lib
 TEAMHARNESS_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):plugins/teamharness
-BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
+AT_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF)
+BUILD_ARGS = --build-context agentteams=$(AT_CONTEXT) --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
 
 .PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke task-protocol-smoke observability-smoke
 build:

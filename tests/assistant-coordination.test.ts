@@ -39,7 +39,7 @@ it('admits an authenticated assistant reminder through the native Teams channel 
   } });
   try {
     const message = createMatrixTextMessageEvent({ eventId: '$closure', sender: '@bot:example.org', body: 'Visible projection' });
-    message.content = { ...message.content, 'org.agentteams.coordination': structuredClone(control) } as never;
+    message.content = { ...message.content, msgtype: 'm.notice', 'org.agentteams.coordination': structuredClone(control) } as never;
     await handler('!room:example.org', message);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toContain(canonicalText);

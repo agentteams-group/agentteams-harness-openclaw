@@ -1,0 +1,61 @@
+--- a/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
++++ b/extensions/matrix/src/matrix/monitor/handler-ingress-access.ts
+@@ -123,7 +123,8 @@
+   const isVerifiedSelfClosure =
+     senderId === selfUserId &&
+-    (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")] ===
+-      "main_task_ready";
++    ["main_task_ready", "assistant_digest"].includes(String(
++      (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")],
++    ));
+   const isConfiguredBotSender = configuredBotUserIds.has(senderId) && !isVerifiedSelfClosure;
+   const roomMatchMeta = roomConfigInfo
+     ? `matchKey=${roomConfigInfo.matchKey ?? "none"} matchSource=${
+@@ -187,7 +188,7 @@
+   const { liveCfg, liveDmAllowFrom, liveGroupAllowFrom } = await resolveLiveAccountAllowlists();
+   const accessState = await resolveMatrixMonitorAccessState({
+-    allowFrom: liveDmAllowFrom,
++    allowFrom: isVerifiedSelfClosure ? [...liveDmAllowFrom, senderId] : liveDmAllowFrom,
+     storeAllowFrom,
+     dmPolicy,
+     groupPolicy,
+     groupAllowFrom: isVerifiedSelfClosure ? [...liveGroupAllowFrom, senderId] : liveGroupAllowFrom,
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -431,7 +431,7 @@
+       // hook can rewrite or cancel so the original payload cannot escape the delivery gate.
+       const hookRunner = getGlobalHookRunner();
+-      const allowProviderPreview = !(
++      const allowProviderPreview = coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest" && !(
+         (hookRunner?.hasHooks("reply_payload_sending") ?? false) ||
+         (hookRunner?.hasHooks("message_sending") ?? false)
+       );
+       const draftController = await createMatrixDraftController({
+@@ -508,4 +508,4 @@
+-      if (isDirectMessage && !directRuns.has(roomId) && await directMember(roomId, senderId)) {
++      if (coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest" && isDirectMessage && !directRuns.has(roomId) && await directMember(roomId, senderId)) {
+         let finish!: () => void;
+         const done = new Promise<void>((resolve) => { finish = resolve; });
+         directRun = { id: messageId, sender: senderId, inputs: directInputs, controller: new AbortController(), done, finish, stopped: false, started: false };
+@@ -596,5 +596,6 @@
+             dispatcherOptions: {
+               ...turnDispatcherOptions,
++              ...(coordinationMeta?.teamharness_coordination?.kind === "assistant_digest" ? { transformReplyPayload: () => null } : {}),
+               onSettled: () => draftController.cancelProgressDraft(),
+             },
+             replyOptions: {
+--- a/src/config/sessions/restart-recovery-state.ts
++++ b/src/config/sessions/restart-recovery-state.ts
+@@ -46,7 +46,12 @@
+ export function isMainRestartRecoveryCandidate(
+   entry: { spawnDepth?: unknown; subagentRole?: unknown },
+   sessionKey: string,
+ ): boolean {
++  // AT replays verified assistant controls; native resume loses their receipt boundary.
++  if (process.env.AGENTTEAMS_CONTROLLER_URL &&
++      sessionKey.toLowerCase().includes(":coordination-assistant%3a")) {
++    return false;
++  }
+   if (typeof entry.spawnDepth === "number" && entry.spawnDepth > 0) {
+     return false;
+   }

@@ -6,7 +6,8 @@ PLATFORMS ?= linux/amd64,linux/arm64
 AT_SOURCE ?= .deps/AgentTeams
 SHARED_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):shared/lib
 TEAMHARNESS_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF):plugins/teamharness
-BUILD_ARGS = --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
+AT_CONTEXT ?= https://github.com/agentscope-ai/AgentTeams.git\#$(AT_REF)
+BUILD_ARGS = --build-context agentteams=$(AT_CONTEXT) --build-context shared=$(SHARED_CONTEXT) --build-context teamharness=$(TEAMHARNESS_CONTEXT)
 
 .PHONY: build push test smoke direct-control-smoke matrix-restart-smoke task-recovery-smoke task-protocol-smoke observability-smoke
 build:
@@ -24,7 +25,7 @@ smoke:
 	docker run --rm --network none --entrypoint python3 -v "$(CURDIR)/tests/native_runtime_config_smoke.py:/tmp/native_runtime_config_smoke.py:ro" $(IMAGE):$(VERSION) /tmp/native_runtime_config_smoke.py
 
 direct-control-smoke:
-	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts; cp /dm/task-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts'
+	docker run --rm --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts; cp /dm/task-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts; cp /dm/assistant-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-assistant-coordination.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-direct-control.test.ts extensions/matrix/src/matrix/monitor/agentteams-task-coordination.test.ts extensions/matrix/src/matrix/monitor/agentteams-assistant-coordination.test.ts'
 
 matrix-restart-smoke:
 	docker run --rm --network none --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; cp /dm/matrix-restart.test.ts extensions/matrix/src/matrix/monitor/agentteams-matrix-restart.test.ts; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts extensions/matrix/src/matrix/monitor/agentteams-matrix-restart.test.ts'

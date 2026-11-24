@@ -18,18 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - run: python -m pip install pytest
       - run: python -m pytest plugins/agentteams-matrix-openclaw/sidecar/tests -q
-      - name: Test plugin against its supported OpenClaw SDK
-        working-directory: plugins/agentteams-matrix-openclaw
-        run: |
-          npm install --ignore-scripts --legacy-peer-deps --no-package-lock
-          npm install --ignore-scripts --legacy-peer-deps --no-package-lock --no-save openclaw@2026.10.9
-          npm test
-          npm run verify:sdk
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -47,6 +37,11 @@ jobs:
       - run: python3 -m pip install 'PyYAML>=6,<7'
       - run: make test
       - run: make build VERSION=ci SHARED_CONTEXT=./.deps/AgentTeams/shared/lib TEAMHARNESS_CONTEXT=./.deps/AgentTeams/plugins/teamharness
+      - name: Test optional sidecar against the managed image SDK
+        run: |
+          docker run --rm -v "$PWD/plugins/agentteams-matrix-openclaw:/candidate" -w /candidate \
+            --entrypoint /bin/sh ghcr.io/agentteams-group/agentteams-harness-openclaw:ci -ec \
+            'npm install --ignore-scripts --legacy-peer-deps --no-package-lock; ln -s /opt/openclaw node_modules/openclaw; npm test; npm run verify:sdk'
       - run: make smoke VERSION=ci
       - run: make direct-control-smoke VERSION=ci
       - run: make matrix-restart-smoke VERSION=ci

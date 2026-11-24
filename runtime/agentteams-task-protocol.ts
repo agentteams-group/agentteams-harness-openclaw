@@ -16,6 +16,8 @@ export type TaskProtocolFrame = {
   inputCheckpointAvailable?: boolean;
   pendingInputs?: Array<Record<string, any>>;
   finishedFact?: string;
+  finishedDisplay?: string;
+  terminalReceipts?: Array<{ receiptId: string; fact: string }>;
   unresolvedEffects?: boolean;
   systemContract?: string;
   traceFields?: Record<string, string | number | boolean | string[]>;
@@ -68,9 +70,10 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
     }
     await checkpointTaskDeliveries(frame, context, native, taskNative);
     if (frame.finishedFact) {
+      await checkpointCanonicalReceipts(frame.terminalReceipts || [], context, native);
       const stream = createAssistantMessageEventStream();
       stream.push({ type: "done", reason: "stop", message: { role: "assistant",
-        content: [{ type: "text", text: frame.finishedFact }], api: model.api, provider: model.provider,
+        content: [{ type: "text", text: frame.finishedDisplay ?? frame.finishedFact }], api: model.api, provider: model.provider,
         model: model.id, usage: buildUsageWithNoCost({}), stopReason: "stop", timestamp: Date.now() } });
       return stream;
     }
@@ -153,7 +156,7 @@ export async function prepareTaskProtocol(meta: Record<string, any>): Promise<Ta
   if (!process.env.AGENTTEAMS_CONTROLLER_URL) return;
   const role = process.env.AGENTTEAMS_AGENT_ROLE || "worker";
   let event = meta.teamharness_coordination;
-  const frame: TaskProtocolFrame = { context: { role, sourceEvent: meta.event_id }, traceFields: {
+  const frame: TaskProtocolFrame = { context: { role, sourceEvent: meta.event_id, actor: meta.agent_matrix_user_id }, traceFields: {
     "agentteams.room.id": meta.room_id,
     ...(meta.event_id?.startsWith("$") ? { "agentteams.event.id": meta.event_id } : {}),
     "agentteams.task.phase": event?.kind || "source_request",
@@ -175,9 +178,9 @@ export async function prepareTaskProtocol(meta: Record<string, any>): Promise<Ta
     if (task) frame.traceFields!["agentteams.task.id"] = task;
     const team = prepared.context?.task?.team || prepared.context?.team;
     if (team) frame.traceFields!["agentteams.team.id"] = team;
-  } else if (role === "manager") {
+  } else if (["manager", "leader", "team_leader"].includes(role)) {
     frame.context.sources = await taskNative({ operation: "sources", meta });
-    frame.deliveryRoom = meta.room_id;
+    if (role === "manager") frame.deliveryRoom = meta.room_id;
   }
   if (event?.kind === "assistant_digest") return frame;
   if (!event && role !== "manager") frame.journal = await prepareNativeMessage(meta);

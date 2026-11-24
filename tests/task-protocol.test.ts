@@ -68,6 +68,18 @@ it("ends a completed protocol phase with its validated fact and no provider requ
   expect(f.streamFn).not.toHaveBeenCalled();
 });
 
+it("persists the actual sent fact before a silent terminal phase without another provider call", async () => {
+  const f = fixture();
+  f.frame.pendingInputs = [];
+  f.frame.context.inputRefreshPending = false;
+  Object.assign(f.frame, { finishedFact: "Saved submission", finishedDisplay: "NO_REPLY",
+    terminalReceipts: [{ receiptId: "actual-send", fact: "[Task handoff receipt]\nActual Matrix send" }] });
+  const result = await (await f.session.agent.streamFn({ api: "openai-completions", provider: "fixture", id: "fixture" }, { messages: [] }, {})).result();
+  expect(result.content[0].text).toBe("NO_REPLY");
+  expect(f.manager.buildSessionContext().messages.some((message) => JSON.stringify(message).includes("Actual Matrix send"))).toBe(true);
+  expect(f.streamFn).not.toHaveBeenCalled();
+});
+
 it("does not admit another model request while a native tool effect is unconfirmed", async () => {
   const f = fixture();
   Object.assign(f.frame, { unresolvedEffects: true });

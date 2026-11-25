@@ -73,7 +73,7 @@ def configure(workspace: Path, record_path: Path | None = None) -> Path:
     free_response_rooms = matrix.pop('freeResponseRooms', None) or []
     matrix.pop('dmMentionThreads', None)
     history = matrix.pop('historyLimit', None)
-    matrix.update(enabled=True, autoJoin='always',
+    matrix.update(enabled=True, autoJoin='always', joinIntro=False,
                   network={'dangerouslyAllowPrivateNetwork': True},
                   groups={'*': {'requireMention': require_mention}})
     for room in [home_room, *free_response_rooms]:

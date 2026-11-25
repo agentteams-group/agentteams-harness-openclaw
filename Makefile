@@ -39,4 +39,4 @@ observability-smoke:
 
 
 task-protocol-smoke:
-	docker run --rm --network none --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; for name in task-protocol task-checkpoint task-journal task-queue; do cp /dm/$$name.test.ts src/agents/agentteams-$$name.test.ts; done; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts src/agents/agentteams-task-protocol.test.ts src/agents/agentteams-task-checkpoint.test.ts src/agents/agentteams-task-journal.test.ts src/agents/agentteams-task-queue.test.ts'
+	docker run --rm --network none --entrypoint bash -v "$(CURDIR)/tests:/dm:ro" $(IMAGE):$(VERSION) -ec 'cd /opt/openclaw; git archive HEAD test | tar -x; for name in task-protocol task-checkpoint task-journal task-queue task-terminal; do cp /dm/$$name.test.ts src/agents/agentteams-$$name.test.ts; done; pnpm exec vitest run --config /dm/direct-control.vitest.config.ts src/agents/agentteams-task-protocol.test.ts src/agents/agentteams-task-checkpoint.test.ts src/agents/agentteams-task-journal.test.ts src/agents/agentteams-task-queue.test.ts src/agents/agentteams-task-terminal.test.ts'

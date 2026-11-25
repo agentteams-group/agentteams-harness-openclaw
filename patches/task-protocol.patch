@@ -151,3 +151,22 @@
      senderId,
      isRoom,
      conversationId: roomId,
+--- a/src/agents/embedded-agent-runner/run/terminal-resolution.ts
++++ b/src/agents/embedded-agent-runner/run/terminal-resolution.ts
+@@ -1,3 +1,4 @@
++import type { TaskProtocolFrame } from "../../agentteams-task-protocol.js";
+ import { randomBytes } from "node:crypto";
+ import { isCompactionReplayCheckpoint } from "@openclaw/ai/transports";
+ import { setReplyPayloadMetadata } from "../../../auto-reply/reply-payload.js";
+@@ -123,5 +124,11 @@
+   replyDeliveryState?: ReplyDeliveryState;
+ }): string | null {
++  const task = input.runParams.toolBindings?.agentteamsTask as TaskProtocolFrame | undefined;
++  if (task?.finishedFact && task.finishedDisplay === "NO_REPLY" && !task.unresolvedEffects) {
++    // A committed Task phase already owns its handoff; no authored summary is owed.
++    input.runParams.terminalReplyExpectation = "optional";
++    input.runParams.allowEmptyAssistantReplyAsSilent = true;
++  }
+   const terminalAssistant = resolveCurrentAttemptAssistant(input.attempt);
+   if (
+     !input.settledTurnFinalizationAvailable ||

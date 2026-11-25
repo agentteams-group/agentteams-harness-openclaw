@@ -90,6 +90,7 @@ class RuntimeConfigTest(unittest.TestCase):
             self.assertEqual(native['gateway']['auth']['token'], 'new-model-key')
             matrix = native['channels']['matrix']
             self.assertEqual(matrix['accessToken'], 'new-matrix-token')
+            self.assertFalse(matrix['joinIntro'])
             self.assertEqual(matrix['groupAllowFrom'], ['@leader:test'])
             self.assertEqual(matrix['dm']['allowFrom'], ['@human:test'])
             self.assertFalse(matrix['groups']['!home:test']['requireMention'])

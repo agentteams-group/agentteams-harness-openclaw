@@ -6,10 +6,11 @@ import { buildUsageWithNoCost } from "./stream-message-shared.js";
 import { admitNativeTaskTools, prepareNativeMessage } from "./agentteams-task-journal.js";
 import { checkpointTaskDeliveries, checkpointCanonicalReceipts } from "./agentteams-task-checkpoint.js";
 import { registerTaskTraceContext } from "./agentteams-trace-context.js";
+import { MatrixTaskProgress } from "./agentteams-task-progress.js";
 
 export type TaskProtocolFrame = {
   context: Record<string, any>;
-  progress?: import("./agentteams-task-progress.js").MatrixTaskProgress;
+  progressRunId?: string;
   prepared?: Record<string, any>;
   deliveryRoom?: string;
   deliveryFacts?: string[];
@@ -33,7 +34,7 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
 }) {
   if (!frame) return;
   frame.inputCheckpointAvailable = true;
-  frame.progress?.attach(native.session.agent);
+  MatrixTaskProgress.get(frame.progressRunId)?.attach(native.session.agent);
   const next = native.session.agent.streamFn;
   native.session.agent.streamFn = async (model: any, context: any, options: any) => {
     if (frame.unresolvedEffects) throw new Error("Native tool outcome requires verification before another model call");

@@ -251,10 +251,11 @@ export class AgentTeamsTaskRecovery {
       }) : undefined;
       if (protocol) {
         protocol.journal = { kind: "task", identity };
-        progress = protocol.progress = new MatrixTaskProgress(
+        progress = new MatrixTaskProgress(
           (content) => client.sendMessage(task.room_id, content),
           `openclaw:task:${identity.team_id}:${identity.task_id}:${identity.generation}`,
         );
+        protocol.progressRunId = progress.runId;
       }
       if (protocol) Object.assign(protocol.traceFields!, {
         "agentteams.task.id": identity.task_id, "agentteams.team.id": identity.team_id,
@@ -299,7 +300,7 @@ export class AgentTeamsTaskRecovery {
       if (nativeStarted) await this.rpc({ action: "interrupted", identity }).catch(() => {});
       else this.admitted.delete(`${this.key(identity.team_id, identity.task_id)}/${identity.instance_id}/${identity.generation}`);
       throw error;
-    } finally { clearInterval(guard); await progress?.flush(); }
+    } finally { clearInterval(guard); await progress?.flush(); progress?.release(); }
   }
 }
 

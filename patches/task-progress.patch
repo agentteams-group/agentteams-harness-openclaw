@@ -1,5 +1,5 @@
 diff --git a/extensions/matrix/src/matrix/monitor/handler.ts b/extensions/matrix/src/matrix/monitor/handler.ts
-index 91f5954..599cba6 100644
+index 91f5954..1d3d7a2 100644
 --- a/extensions/matrix/src/matrix/monitor/handler.ts
 +++ b/extensions/matrix/src/matrix/monitor/handler.ts
 @@ -1,4 +1,5 @@
@@ -8,7 +8,15 @@ index 91f5954..599cba6 100644
  import { attachTaskProtocol, prepareTaskProtocol } from "../../../../../src/agents/agentteams-task-protocol.js";
  import { getAgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
  import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
-@@ -183,16 +184,20 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+@@ -147,6 +148,7 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+       | import("openclaw/plugin-sdk/persistent-dedupe").ChannelReplayClaimHandle
+       | undefined;
+     let draftControllerRef: Awaited<ReturnType<typeof createMatrixDraftController>> | undefined;
++    let taskProgress: MatrixTaskProgress | undefined;
+     let directRun: ReturnType<typeof directRuns.get>;
+     let directFailed = false;
+     try {
+@@ -183,16 +185,20 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
          return;
        }
  
@@ -30,7 +38,7 @@ index 91f5954..599cba6 100644
 +            ...(progressRunId ? { "org.agentteams.run_id": progressRunId } : {}),
 +            ...(coordinationMeta ? { "org.agentteams.progress_only": true, "m.mentions": { user_ids: [] } } : {}),
 +          };
-+          const projected: Record<string, unknown> = { ...content, ...extra };
++          const projected = { ...content, ...extra };
 +          if (content["m.new_content"]) projected["m.new_content"] = { ...(content["m.new_content"] as object), ...extra };
 +          return value.call(target, room, projected, ...args);
 +        };
@@ -39,7 +47,7 @@ index 91f5954..599cba6 100644
        const isPollEvent = isPollEventType(eventType);
        const isReactionEvent = eventType === EventType.Reaction;
        const locationContent = event.content as LocationMessageEventContent;
-@@ -395,11 +400,16 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+@@ -395,11 +401,17 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
          replyTarget,
          sharedDmContextNotice,
        } = inboundContext;
@@ -52,9 +60,19 @@ index 91f5954..599cba6 100644
 +      });
 +      if (taskFrame && coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest") {
 +        progressRunId = `openclaw:${roomId}:${eventId}`;
-+        taskFrame.progress = new MatrixTaskProgress((content) => replyClient.sendMessage(roomId, content), progressRunId);
++        taskProgress = new MatrixTaskProgress((content) => replyClient.sendMessage(roomId, content), progressRunId);
++        taskFrame.progressRunId = progressRunId;
 +      }
 +      attachTaskProtocol(ctxPayload, taskFrame);
        const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, _route.agentId);
        const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
          cfg,
+@@ -724,6 +736,8 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+       }
+       runtime.error?.(`matrix handler failed: ${String(err)}`);
+     } finally {
++      await taskProgress?.flush();
++      taskProgress?.release();
+       // Stop the draft stream timer so partial drafts don't leak if the
+       // model run throws or times out mid-stream.
+       const draftStream = draftControllerRef?.draftStream;

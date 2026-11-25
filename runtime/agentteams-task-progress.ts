@@ -3,13 +3,18 @@ import { redactSensitiveText } from "../logging/redact.js";
 
 /** Native events become display-only run blocks; no message is fed back to the agent. */
 export class MatrixTaskProgress {
+  private static pending = new Map<string, MatrixTaskProgress>();
   readonly runId: string;
   private queue = Promise.resolve();
   private calls = new Map<string, { eventId: string; block: Record<string, unknown> }>();
   private unsubscribe?: () => void;
   constructor(private send: (content: Record<string, unknown>) => Promise<string>, runId: string) {
     this.runId = runId;
+    MatrixTaskProgress.pending.set(runId, this);
   }
+
+  static get(runId?: string) { return runId ? this.pending.get(runId) : undefined; }
+  release() { if (MatrixTaskProgress.pending.get(this.runId) === this) MatrixTaskProgress.pending.delete(this.runId); }
 
   private bounded(value: unknown): unknown {
     const text = redactSensitiveText(JSON.stringify(value ?? null));
@@ -17,6 +22,7 @@ export class MatrixTaskProgress {
   }
 
   attach(agent: { subscribe: (listener: (event: AgentEvent) => void) => () => void }) {
+    this.release();
     this.unsubscribe?.();
     this.unsubscribe = agent.subscribe((event) => {
       this.queue = this.queue.then(() => this.publish(event)).catch((error) => {

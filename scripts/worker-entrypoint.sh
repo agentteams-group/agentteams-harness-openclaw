@@ -445,4 +445,7 @@ fi
 rm -f "${HOME}/.openclaw/logs/config-health.json" 2>/dev/null || true
 
 python3 /opt/agentteams/scripts/lib/agentteams_receipts.py serve --runtime openclaw --workspace "${WORKSPACE}" &
+if [ -n "${AGENTTEAMS_STORAGE_PREFIX:-}" ]; then
+    python3 /opt/agentteams/scripts/lib/harness_health.py --runtime openclaw --member "${AGENTTEAMS_WORKER_NAME}" --parent "$$" &
+fi
 exec python3 /opt/agentteams/scripts/start-openclaw-gateway.py

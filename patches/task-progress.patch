@@ -1,0 +1,60 @@
+diff --git a/extensions/matrix/src/matrix/monitor/handler.ts b/extensions/matrix/src/matrix/monitor/handler.ts
+index 91f5954..599cba6 100644
+--- a/extensions/matrix/src/matrix/monitor/handler.ts
++++ b/extensions/matrix/src/matrix/monitor/handler.ts
+@@ -1,4 +1,5 @@
+ import { spawn } from "node:child_process";
++import { MatrixTaskProgress } from "../../../../../src/agents/agentteams-task-progress.js";
+ import { attachTaskProtocol, prepareTaskProtocol } from "../../../../../src/agents/agentteams-task-protocol.js";
+ import { getAgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
+ import { resolveHumanDelayConfig } from "openclaw/plugin-sdk/agent-runtime";
+@@ -183,16 +184,20 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+         return;
+       }
+ 
+-      const replyClient = (event as unknown as Record<symbol, unknown>)[Symbol.for("agentteams.coordination.verified")]
+-        ? new Proxy(client, { get(target, key) {
+-            const value = Reflect.get(target, key);
+-            if (key === "sendMessage") return (room: string, content: Record<string, unknown>, ...args: unknown[]) => {
+-              const progress: Record<string, unknown> = { ...content, "org.agentteams.progress_only": true, "m.mentions": { user_ids: [] } };
+-              if (content["m.new_content"]) progress["m.new_content"] = { ...(content["m.new_content"] as object), "org.agentteams.progress_only": true, "m.mentions": { user_ids: [] } };
+-              return value.call(target, room, progress, ...args);
+-            };
+-            return typeof value === "function" ? value.bind(target) : value;
+-          } }) : client;
++      let progressRunId: string | undefined;
++      const replyClient = new Proxy(client, { get(target, key) {
++        const value = Reflect.get(target, key);
++        if (key === "sendMessage") return (room: string, content: Record<string, unknown>, ...args: unknown[]) => {
++          const extra = {
++            ...(progressRunId ? { "org.agentteams.run_id": progressRunId } : {}),
++            ...(coordinationMeta ? { "org.agentteams.progress_only": true, "m.mentions": { user_ids: [] } } : {}),
++          };
++          const projected: Record<string, unknown> = { ...content, ...extra };
++          if (content["m.new_content"]) projected["m.new_content"] = { ...(content["m.new_content"] as object), ...extra };
++          return value.call(target, room, projected, ...args);
++        };
++        return typeof value === "function" ? value.bind(target) : value;
++      } });
+       const isPollEvent = isPollEventType(eventType);
+       const isReactionEvent = eventType === EventType.Reaction;
+       const locationContent = event.content as LocationMessageEventContent;
+@@ -395,11 +400,16 @@ export function createMatrixRoomMessageHandler(params: MatrixMonitorHandlerParam
+         replyTarget,
+         sharedDmContextNotice,
+       } = inboundContext;
+-      attachTaskProtocol(ctxPayload, await prepareTaskProtocol({
++      const taskFrame = await prepareTaskProtocol({
+         ...(coordinationMeta ?? { room_id: roomId, sender_id: senderId }), event_id: eventId, agent_matrix_user_id: await client.getUserId(),
+         native_source: { sender: event.sender, content: event.content, type: event.type, origin_server_ts: event.origin_server_ts },
+         registered_team: cfg.plugins?.entries?.["agentteams-teamharness"]?.config?.team,
+-      }));
++      });
++      if (taskFrame && coordinationMeta?.teamharness_coordination?.kind !== "assistant_digest") {
++        progressRunId = `openclaw:${roomId}:${eventId}`;
++        taskFrame.progress = new MatrixTaskProgress((content) => replyClient.sendMessage(roomId, content), progressRunId);
++      }
++      attachTaskProtocol(ctxPayload, taskFrame);
+       const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, _route.agentId);
+       const { onModelSelected, ...prefixOptions } = createReplyPrefixOptions({
+         cfg,

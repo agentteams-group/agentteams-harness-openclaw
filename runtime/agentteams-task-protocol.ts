@@ -9,6 +9,7 @@ import { registerTaskTraceContext } from "./agentteams-trace-context.js";
 
 export type TaskProtocolFrame = {
   context: Record<string, any>;
+  progress?: import("./agentteams-task-progress.js").MatrixTaskProgress;
   prepared?: Record<string, any>;
   deliveryRoom?: string;
   deliveryFacts?: string[];
@@ -32,6 +33,7 @@ export function installTaskModelBoundary(frame: TaskProtocolFrame | undefined, n
 }) {
   if (!frame) return;
   frame.inputCheckpointAvailable = true;
+  frame.progress?.attach(native.session.agent);
   const next = native.session.agent.streamFn;
   native.session.agent.streamFn = async (model: any, context: any, options: any) => {
     if (frame.unresolvedEffects) throw new Error("Native tool outcome requires verification before another model call");

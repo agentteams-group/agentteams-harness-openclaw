@@ -57,6 +57,9 @@ COPY patches/task-protocol.patch /tmp/agentteams-task-protocol.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-task-protocol.patch
 COPY patches/assistant-coordination.patch /tmp/agentteams-assistant-coordination.patch
 RUN git -C /opt/openclaw apply /tmp/agentteams-assistant-coordination.patch
+COPY runtime/agentteams-task-progress.ts /opt/openclaw/src/agents/agentteams-task-progress.ts
+COPY patches/task-progress.patch /tmp/agentteams-task-progress.patch
+RUN git -C /opt/openclaw apply /tmp/agentteams-task-progress.patch
 
 # The gateway loads compiled extensions from dist. Rebuild them after patching.
 RUN cd /opt/openclaw && git show HEAD:tsdown.config.ts > tsdown.config.ts \

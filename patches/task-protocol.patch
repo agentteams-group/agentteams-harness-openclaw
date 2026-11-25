@@ -37,7 +37,7 @@
          sharedDmContextNotice,
        } = inboundContext;
 +      attachTaskProtocol(ctxPayload, await prepareTaskProtocol({
-+        ...(coordinationMeta ?? { room_id: roomId, sender_id: senderId }), event_id: eventId,
++        ...(coordinationMeta ?? { room_id: roomId, sender_id: senderId }), event_id: eventId, agent_matrix_user_id: await client.getUserId(),
 +        native_source: { sender: event.sender, content: event.content, type: event.type, origin_server_ts: event.origin_server_ts },
 +        registered_team: cfg.plugins?.entries?.["agentteams-teamharness"]?.config?.team,
 +      }));

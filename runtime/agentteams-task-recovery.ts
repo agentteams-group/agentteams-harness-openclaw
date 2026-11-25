@@ -181,7 +181,7 @@ export class AgentTeamsTaskRecovery {
             await this.deliver(identity, task.room_id, claimed.saved_result, task.execution.checkpoint);
             continue;
           }
-          if (task.status === "submitted") continue;
+          if (task.status === "submitted" || task.status === "completed") continue;
           const admitted = `${key}/${identity.instance_id}/${identity.generation}`;
           if (this.admitted.has(admitted)) continue;
           const route = this.options.core.channel.routing.resolveAgentRoute({ cfg: this.options.cfg,
@@ -242,7 +242,7 @@ export class AgentTeamsTaskRecovery {
       const messageId = (identity.generation === 1 ? sourceEventId : undefined)
         ?? `recovery:${identity.team_id}/${task.task_id}:${identity.generation}`;
       const protocol = task.task_plan_id ? await prepareTaskProtocol({
-        event_id: sourceEventId ?? messageId, room_id: task.room_id,
+        event_id: sourceEventId ?? messageId, room_id: task.room_id, agent_matrix_user_id: userId,
         teamharness_coordination: { id: task.task_notifications?.assigned?.event_id, kind: "task_assigned", task_id: task.task_id,
           main_task_id: task.main_task_id ?? "", project_id: task.project_id ?? "", delivery_id: task.notifyTxn },
       }) : undefined;

@@ -13,6 +13,7 @@ import { appendSessionTranscriptMessageByIdentity } from "openclaw/plugin-sdk/se
 import { createExecTool } from "/opt/openclaw/src/agents/bash-tools.exec-run.ts";
 import { getMatrixRuntime } from "../../runtime.js";
 import { installMatrixMonitorTestRuntime, resetMatrixTestStores } from "../../test-runtime.js";
+import * as taskProtocol from "../../../../../src/agents/agentteams-task-protocol.js";
 import { AgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
 
 let home: string;
@@ -160,6 +161,8 @@ it("reuses only real fresh SQLite sessions matching the authoritative checkpoint
 
 it("keeps source identity in the native context and delivers the authoritative report after native closure", async () => {
   task.execution.generation = 1;
+  task.task_plan_id = "managed-plan";
+  const prepare = vi.spyOn(taskProtocol, "prepareTaskProtocol").mockResolvedValue(undefined);
   const run = vi.fn(async (params) => {
     const input = await params.adapter.ingest(params.raw);
     const turn = await params.adapter.resolveTurn(input, { kind: "message", canStartAgentTurn: true }, {});
@@ -178,6 +181,9 @@ it("keeps source identity in the native context and delivers the authoritative r
   expect(send).toHaveBeenCalledOnce();
   expect(send.mock.calls[0][1].body).toBe("authoritative saved report");
   expect(sessionCache).toBeNull();
+  expect(prepare).toHaveBeenCalledWith(expect.objectContaining({
+    agent_matrix_user_id: "@worker:example.org", event_id: "$assignment-source", room_id: task.room_id,
+  }));
   await recovery.scan();
   expect(run).toHaveBeenCalledOnce();
 });

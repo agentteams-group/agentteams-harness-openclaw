@@ -1,7 +1,16 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Agent } from "/opt/openclaw/packages/agent-core/src/agent.js";
 import { createTurnSequenceStream, makeTool, model } from "/opt/openclaw/packages/agent-core/src/agent-loop.test-support.js";
 import { MatrixTaskProgress } from "/opt/openclaw/src/agents/agentteams-task-progress.js";
+
+it("keeps the display binding across separately loaded channel and native bundles", async () => {
+  const display = new MatrixTaskProgress(async () => "$event", "openclaw:task:bundle-boundary");
+  vi.resetModules();
+  const { MatrixTaskProgress: NativeProgress } = await import("/opt/openclaw/src/agents/agentteams-task-progress.js");
+  expect(NativeProgress.get(display.runId)).toBe(display);
+  display.release();
+  expect(NativeProgress.get(display.runId)).toBeUndefined();
+});
 
 it("projects real native reasoning/tool events and closes one display run without an extra model call", async () => {
   const sent: any[] = [], requests: any[] = [], executed: string[] = [];

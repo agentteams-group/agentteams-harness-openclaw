@@ -1,20 +1,24 @@
 import type { AgentEvent } from "../../packages/agent-core/src/types.js";
 import { redactSensitiveText } from "../logging/redact.js";
 
+// The Matrix extension and embedded runner load separate copies of this module.
+const registryKey = Symbol.for("agentteams.matrix.task-progress");
+const registry = globalThis as typeof globalThis & { [registryKey]?: Map<string, MatrixTaskProgress> };
+const pending = registry[registryKey] ??= new Map<string, MatrixTaskProgress>();
+
 /** Native events become display-only run blocks; no message is fed back to the agent. */
 export class MatrixTaskProgress {
-  private static pending = new Map<string, MatrixTaskProgress>();
   readonly runId: string;
   private queue = Promise.resolve();
   private calls = new Map<string, { eventId: string; block: Record<string, unknown> }>();
   private unsubscribe?: () => void;
   constructor(private send: (content: Record<string, unknown>) => Promise<string>, runId: string) {
     this.runId = runId;
-    MatrixTaskProgress.pending.set(runId, this);
+    pending.set(runId, this);
   }
 
-  static get(runId?: string) { return runId ? this.pending.get(runId) : undefined; }
-  release() { if (MatrixTaskProgress.pending.get(this.runId) === this) MatrixTaskProgress.pending.delete(this.runId); }
+  static get(runId?: string) { return runId ? pending.get(runId) : undefined; }
+  release() { if (pending.get(this.runId) === this) pending.delete(this.runId); }
 
   private bounded(value: unknown): unknown {
     const text = redactSensitiveText(JSON.stringify(value ?? null));

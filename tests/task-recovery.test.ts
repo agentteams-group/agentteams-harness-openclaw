@@ -14,6 +14,7 @@ import { createExecTool } from "/opt/openclaw/src/agents/bash-tools.exec-run.ts"
 import { getMatrixRuntime } from "../../runtime.js";
 import { installMatrixMonitorTestRuntime, resetMatrixTestStores } from "../../test-runtime.js";
 import * as taskProtocol from "../../../../../src/agents/agentteams-task-protocol.js";
+import { MatrixTaskProgress } from "../../../../../src/agents/agentteams-task-progress.js";
 import { AgentTeamsTaskRecovery } from "./agentteams-task-recovery.js";
 
 let home: string;
@@ -162,11 +163,21 @@ it("reuses only real fresh SQLite sessions matching the authoritative checkpoint
 it("keeps source identity in the native context and delivers the authoritative report after native closure", async () => {
   task.execution.generation = 1;
   task.task_plan_id = "managed-plan";
-  const prepare = vi.spyOn(taskProtocol, "prepareTaskProtocol").mockResolvedValue(undefined);
+  const frame: taskProtocol.TaskProtocolFrame = { context: { role: "worker" }, traceFields: {} };
+  const prepare = vi.spyOn(taskProtocol, "prepareTaskProtocol").mockResolvedValue(frame);
   const run = vi.fn(async (params) => {
     const input = await params.adapter.ingest(params.raw);
     const turn = await params.adapter.resolveTurn(input, { kind: "message", canStartAgentTurn: true }, {});
     expect(turn.ctxPayload.MessageSid).toBe("$assignment-source");
+    const cloned = structuredClone(turn.ctxPayload.GatewayRunToolBindings);
+    expect(cloned.agentteamsTask.progressRunId).toBeDefined();
+    const progress = MatrixTaskProgress.get(cloned.agentteamsTask.progressRunId)!;
+    let emit: (event: any) => void;
+    progress.attach({ subscribe(callback) { emit = callback; return () => {}; } });
+    emit!({ type: "tool_execution_start", toolCallId: "actual-read", toolName: "read_file", args: { path: "calc.py" } });
+    emit!({ type: "tool_execution_end", toolCallId: "actual-read", toolName: "read_file", result: "def total_prices(prices):", isError: false });
+    emit!({ type: "agent_end", messages: [] });
+    await progress.flush();
     await turn.replyOptions.onAgentRunStart("native-run");
     await seed(turn.route.sessionKey, turn.ctxPayload.BodyForAgent);
     Object.assign(task, { status: "submitted", result_path: "shared/tasks/T/report.md" });
@@ -178,8 +189,10 @@ it("keeps source identity in the native context and delivers the authoritative r
   const send = create(run);
   await recovery.acceptSource("T", task.room_id, "$assignment-source");
   await expect.poll(() => task.execution.checkpoint.delivery, { timeout: 20000 }).toBe("delivered");
-  expect(send).toHaveBeenCalledOnce();
-  expect(send.mock.calls[0][1].body).toBe("authoritative saved report");
+  expect(send).toHaveBeenCalledTimes(4);
+  expect(send.mock.calls[1][1]["m.relates_to"]).toMatchObject({ rel_type: "m.replace" });
+  expect(send.mock.calls[3][1].body).toBe("authoritative saved report");
+  expect(send.mock.calls[3][1]["org.agentteams.run_id"]).toBe(frame.progressRunId);
   expect(sessionCache).toBeNull();
   expect(prepare).toHaveBeenCalledWith(expect.objectContaining({
     agent_matrix_user_id: "@worker:example.org", event_id: "$assignment-source", room_id: task.room_id,

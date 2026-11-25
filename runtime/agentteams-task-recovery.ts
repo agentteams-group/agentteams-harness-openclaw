@@ -1,6 +1,7 @@
 // Native conversations are caches. The shared Python client owns Task protocol.
 import { spawn } from "node:child_process";
 import { attachTaskProtocol, prepareTaskProtocol } from "../../../../../src/agents/agentteams-task-protocol.js";
+import { MatrixTaskProgress } from "../../../../../src/agents/agentteams-task-progress.js";
 import { createHash, randomUUID } from "node:crypto";
 import { finalizeInboundContext } from "openclaw/plugin-sdk/reply-runtime";
 import {
@@ -209,6 +210,7 @@ export class AgentTeamsTaskRecovery {
   private async deliver(identity: Identity, room: string, text: string, cp: Checkpoint) {
     if (!cp.reply_txn) throw new Error("Saved reply has no durable transaction");
     const event = await this.options.client.sendMessage(room, { msgtype: "m.text", body: text,
+      "org.agentteams.run_id": `openclaw:task:${identity.team_id}:${identity.task_id}:${identity.generation}`,
       "org.agentteams.progress_only": true, "m.mentions": { user_ids: [] } }, cp.reply_txn,
       async () => { await this.rpc({ action: "current", identity }); });
     await this.rpc({ action: "delivered", identity, event_id: event });
@@ -230,6 +232,7 @@ export class AgentTeamsTaskRecovery {
     }, 1000);
     guard.unref();
     let nativeStarted = false;
+    let progress: MatrixTaskProgress | undefined;
     try {
       await this.rpc({ action: "current", identity });
       if (!(await client.getJoinedRooms()).includes(task.room_id)) throw new Error("Task room not joined yet");
@@ -246,7 +249,14 @@ export class AgentTeamsTaskRecovery {
         teamharness_coordination: { id: task.task_notifications?.assigned?.event_id, kind: "task_assigned", task_id: task.task_id,
           main_task_id: task.main_task_id ?? "", project_id: task.project_id ?? "", delivery_id: task.notifyTxn },
       }) : undefined;
-      if (protocol) protocol.journal = { kind: "task", identity };
+      if (protocol) {
+        protocol.journal = { kind: "task", identity };
+        progress = new MatrixTaskProgress(
+          (content) => client.sendMessage(task.room_id, content),
+          `openclaw:task:${identity.team_id}:${identity.task_id}:${identity.generation}`,
+        );
+        protocol.progressRunId = progress.runId;
+      }
       if (protocol) Object.assign(protocol.traceFields!, {
         "agentteams.task.id": identity.task_id, "agentteams.team.id": identity.team_id,
         "agentteams.execution.generation": identity.generation,
@@ -290,7 +300,7 @@ export class AgentTeamsTaskRecovery {
       if (nativeStarted) await this.rpc({ action: "interrupted", identity }).catch(() => {});
       else this.admitted.delete(`${this.key(identity.team_id, identity.task_id)}/${identity.instance_id}/${identity.generation}`);
       throw error;
-    } finally { clearInterval(guard); }
+    } finally { clearInterval(guard); await progress?.flush(); progress?.release(); }
   }
 }
 
